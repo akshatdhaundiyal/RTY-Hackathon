@@ -493,6 +493,8 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
 
     # 4. Expiry.
     for s, r in zip(strips, st):
+        if not r.salts:  # unidentified text is already flagged as UNRECOGNISED; a second card adds only noise
+            continue
         if not s.expiry:
             findings.append(_amber(
                 "EXPIRY_MISSING", f"Expiry not read: {_label(r)}",

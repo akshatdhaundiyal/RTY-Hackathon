@@ -95,6 +95,15 @@ def test_scenario(sid, rx, strips, status, must, must_not):
         assert "All clear" not in r.summary_en  # only a verified match may say "all clear"
 
 
+def test_unidentified_fragments_raise_one_card_not_two():
+    # the real camera photo of a torn Dolo strip also yields fragments like "SnhletsIP"
+    r = analyze([P(name="Dolo 650")], [S(name="Dolo-650", strength_mg=650), S(name="SnhletsIP")], TODAY)
+    codes = [f.code for f in r.findings]
+    assert codes.count("UNRECOGNISED") == 1
+    assert [f.title for f in r.findings if f.code == "EXPIRY_MISSING"] == ["Expiry not read: Dolo 650"]
+    assert r.status == "AMBER"  # never green while something could not be read
+
+
 def test_expired_and_unreadable_dates_in_context():
     r = analyze([P(name="Dolo 650")], [S(name="Dolo 650", expiry="10/2026")], TODAY)
     assert "EXPIRED_BATCH" in {f.code for f in r.findings} and r.status == "RED"
