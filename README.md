@@ -122,19 +122,73 @@ See [RULES.md](RULES.md) for the full list.
 
 - **Team:** MediGuard (Akshat Dhaundiyal)
 - **Track:** Build for the Physical World (`physical-world`), with a Healthcare & Eldercare focus
-- **Problem:** Elderly patients and their caregivers in India juggle 5+ medicines with look-alike brand names. Dolo, Crocin and Calpol are all paracetamol; Brufen plus Ecosprin is a bleeding risk. Prescriptions are abbreviated or handwritten, strips have tiny print, and doses get doubled by accident when a second brand of the same salt is taken. Pharmacists are not always at hand, and many homes have poor connectivity.
-- **What we built:** Photograph the prescription and the medicine strips (or drag in images). MediGuard extracts the drugs and returns Green/Amber/Red cards, a Morning/Afternoon/Night schedule, and a read-aloud warning in English or Hindi.
-- **The hardest part:** making it *safe*, not just smart. The model never judges safety. Vision/OCR extracts text, local Gemma 4 E2B (temperature 0, JSON-schema constrained) normalises it, and a deterministic rule engine (`safety_engine.py`) decides: `DUPLICATE_SALT`, `DOSAGE_MISMATCH`, `DRUG_INTERACTION`, `EXPIRED_BATCH`. It maps ~40 Indian brands to salts, tolerates OCR typos with fuzzy matching, and flags anything it cannot identify instead of guessing. Offline by default (RapidOCR on CPU, so no VRAM fight with Ollama). If `GEMINI_API_KEY` is set, Gemini Vision is used instead and the images are sent to Google; the page says which mode ran.
-- **How to run it:**
+
+### Problem
+
+Elderly patients and their caregivers in India juggle several medicines with look-alike brand names. Dolo, Crocin and Calpol are all paracetamol, and Brufen with Ecosprin is a bleeding risk. Prescriptions are abbreviated, strips have tiny print, strips expire in bedside drawers, and doses get doubled by accident when a second brand of the same salt is taken. A pharmacist is not always at hand, and many homes have poor connectivity.
+
+### What we built
+
+Photograph the prescription and the medicine strips (or drag in images, or use the camera). MediGuard reads them and returns:
+
+- **Green / Amber / Red cards** in English and Hindi, each labelled in words (DANGER / CAUTION / OK), not just colour.
+- **A Morning / Afternoon / Night schedule** taken from the prescription (`1-0-1`, `BD`, `1-0-0-1`, "morning and night"...).
+- **A read-aloud warning** in English or Hindi.
+- **Two one-click demo scenarios** (a safe match and a "trap") that never depend on lighting or glare.
+
+| Prescription (demo image) | Medicine strips (demo image) |
+|---|---|
+| ![prescription](fixtures/rx_sample.png) | ![strips](fixtures/strips_mismatch.png) |
+
+### The hardest part: making it safe, not just smart
+
+The model never judges safety. The pipeline has three separate layers:
+
+1. **Reading:** RapidOCR (CPU/ONNX, so no GPU fight with Ollama) extracts the text. Gemini Vision is used instead only if `GEMINI_API_KEY` is set.
+2. **Extraction:** local Gemma 4 E2B (`temperature=0`, JSON-schema constrained) turns the OCR text into strict `PrescribedDrug` / `PhysicalStrip` records. The OCR text is passed as untrusted data.
+3. **Verdict:** a deterministic Python rule engine (`safety_engine.py`, 41 Indian brands mapped to salts, 15 interaction rules) decides everything. It raises:
+   `DUPLICATE_SALT`, `DOSAGE_MISMATCH`, `DRUG_INTERACTION` (including two drugs of the same class, such as two ARBs), `EXPIRED_BATCH`, plus `SALT_MISMATCH`, `NOT_PRESCRIBED`, `MISSING_STRIP`, `STRENGTH_UNVERIFIED`, `EXPIRY_MISSING` / `EXPIRY_UNREADABLE`, `UNRECOGNISED` and `SCHEDULE_UNCLEAR`.
+
+The principle is **when unsure, never guess and never say "all clear"**:
+
+- `Telma 80` or `Pan 20` (strengths that do not exist) become "cannot identify", not a different dose.
+- A strip counts as a match only with exactly the prescribed ingredients (`Pan 40` vs `Pan-D` is flagged).
+- Expiry parsing ignores MFG and batch dates and prefers the `EXP` date.
+- A **grounding check** compares the model's output with the OCR text: a known medicine seen in the text but not extracted (an LLM omission or a prompt injection printed on a strip), or an extracted name that is not in the text, becomes an amber warning.
+- Empty or one-sided input (no strips, no prescription) can never be green.
+
+Reading failures are explicit: bad uploads get a clear 400/413/415, a stopped Ollama or a bad model answer gets a safe message, and a failed Gemini call falls back to the on-device reader and says so.
+
+### Does it survive imperfect photos?
+
+We tested tilted, blurred, noisy, low-contrast, glared, heavily JPEG-compressed and downscaled versions of the demo images ([report](docs/REPORT-hard-photos.md), generator in `fixtures/make_hard_fixtures.py`). Seven of eight kept all four RED findings. The eighth, a severe perspective skew, degraded to AMBER "cannot identify / expiry not read" warnings. **No variant produced a green result.** Handwriting was not tested and is the hardest case for OCR.
+
+### How to run it
+
 ```bash
 uv sync                           # creates .venv from pyproject.toml + uv.lock (exact versions)
 ollama pull gemma4:e2b            # offline mode only
 uv run uvicorn app:app --host 127.0.0.1 --port 8000
-uv run pytest                     # rule-engine and extraction tests
+uv run pytest                     # 77 tests: rule engine, extraction path, API
 ```
+
 Works the same on Windows, macOS and Linux. Without `uv`: `python -m venv .venv`, activate it, `pip install -r requirements.txt` (exported from the lock file), then `python -m uvicorn app:app --host 127.0.0.1 --port 8000`.
 
-Open http://127.0.0.1:8000. Optional: to enable Gemini, set `GEMINI_API_KEY` in the shell before starting (`.env` is not auto-loaded): PowerShell `$env:GEMINI_API_KEY="..."`, bash `export GEMINI_API_KEY=...`.
-- **Demo:** click **Scenario 2** for the trap: Dolo 650 + Crocin 500 (hidden duplicate paracetamol, plus Crocin expired), Brufen + Ecosprin (bleeding interaction), and Dolo 650 on the strip vs 500 prescribed. Click **Scenario 1** for the safe match. Then upload `fixtures/rx_sample.png` and `fixtures/strips_mismatch.png` to run the real OCR + Gemma pipeline (about 1-2 minutes on a 6 GB GPU, mostly model load).
+Open http://127.0.0.1:8000. The server warms up OCR and the model at startup (the page says so until it is ready). To enable Gemini, set `GEMINI_API_KEY` in the shell before starting (`.env` is not auto-loaded): PowerShell `$env:GEMINI_API_KEY="..."`, bash `export GEMINI_API_KEY=...`. In Gemini mode the images are sent to Google; the page says which mode ran.
 
-_MediGuard is a safety aid, not medical advice._
+### Demo
+
+Full 3-minute script and judge Q&A: [docs/DEMO.md](docs/DEMO.md). Short version:
+
+1. Click **Scenario 1: Safe Match** for the green result with the daily schedule.
+2. Click **Scenario 2** for the trap: Dolo 650 + Crocin 500 (hidden duplicate paracetamol, Crocin expired), Brufen + Ecosprin (bleeding interaction), Dolo 650 on the strip against 500 prescribed.
+3. Upload `fixtures/rx_sample.png` and `fixtures/strips_mismatch.png` and click **Verify** to run the real OCR and Gemma pipeline (about 10-20 seconds warm, 1-2 minutes if the model has to load first on a 6 GB GPU).
+
+### Limitations
+
+- Printed text works well; messy handwriting is not supported and degrades to amber warnings.
+- The database has 41 brands and 15 interaction rules. It is a demo knowledge base, not a complete formulary.
+- The Hindi text has not been reviewed by a native speaker.
+- Demo images are synthetic; we have tested degraded copies of them, not a large set of real phone photos.
+
+_MediGuard is a safety aid, not medical advice. Always confirm with your doctor or pharmacist._
