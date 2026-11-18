@@ -1,0 +1,104 @@
+{
+  "safe": {
+    "title": "Scenario 1: Safe Match",
+    "rx_image": "rx_safe.png",
+    "strips_image": "strips_safe.png",
+    "prescribed": [
+      {
+        "name": "Dolo",
+        "strength_mg": 650,
+        "frequency": "1-0-1",
+        "duration_days": 5
+      },
+      {
+        "name": "Telma",
+        "strength_mg": 40,
+        "frequency": "1-0-0",
+        "duration_days": 30
+      },
+      {
+        "name": "Pantocid DSR",
+        "strength_mg": null,
+        "frequency": "1-0-0",
+        "duration_days": 10
+      }
+    ],
+    "strips": [
+      {
+        "name": "Dolo",
+        "strength_mg": 650,
+        "expiry": "08/2027",
+        "batch": "DL5521"
+      },
+      {
+        "name": "Telma",
+        "strength_mg": 40,
+        "expiry": "03/2028",
+        "batch": "TM8802"
+      },
+      {
+        "name": "Pantocid DSR",
+        "strength_mg": null,
+        "expiry": "09/2027",
+        "batch": "PN4410"
+      }
+    ]
+  },
+  "trap": {
+    "title": "Scenario 2: Hidden Duplicate Salt + Interaction Trap",
+    "rx_image": "rx_sample.png",
+    "strips_image": "strips_mismatch.png",
+    "prescribed": [
+      {
+        "name": "Dolo",
+        "strength_mg": 500,
+        "frequency": "1-0-1",
+        "duration_days": 5
+      },
+      {
+        "name": "Pantocid DSR",
+        "strength_mg": null,
+        "frequency": "1-0-0",
+        "duration_days": 10
+      },
+      {
+        "name": "Ecosprin",
+        "strength_mg": 75,
+        "frequency": "0-0-1",
+        "duration_days": 30
+      }
+    ],
+    "strips": [
+      {
+        "name": "Dolo",
+        "strength_mg": 650,
+        "expiry": "08/2027",
+        "batch": "DL4410"
+      },
+      {
+        "name": "Crocin",
+        "strength_mg": 500,
+        "expiry": "05/2026",
+        "batch": "CR2087"
+      },
+      {
+        "name": "Brufen",
+        "strength_mg": 400,
+        "expiry": "12/2027",
+        "batch": "BR9931"
+      },
+      {
+        "name": "Ecosprin",
+        "strength_mg": 75,
+        "expiry": "10/2027",
+        "batch": "EC1175"
+      },
+      {
+        "name": "Pantocid DSR",
+        "strength_mg": null,
+        "expiry": "09/2027",
+        "batch": "PN3320"
+      }
+    ]
+  }
+}
