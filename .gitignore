@@ -24,3 +24,8 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Agent scratch and skill harness
+.agents/
+.claude/
+skills-lock.json

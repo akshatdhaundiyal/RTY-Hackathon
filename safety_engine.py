@@ -310,11 +310,12 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
     # 0b. Unrecognised items: never guess.
     for r in rx + st:
         if not r.salts:
+            name_disp = r.input_name.strip() or "unrecognised medicine"
             findings.append(_amber(
-                "UNRECOGNISED", f"Cannot identify {r.input_name}"
+                "UNRECOGNISED", f"Cannot identify {name_disp}"
                 + (f" ({r.strength_mg:g})" if r.strength_mg else ""),
-                f"'{r.input_name}' is not in the medicine database (or has a strength we do not know). Ask a pharmacist to check it.",
-                f"'{r.input_name}' हमारे डेटाबेस में नहीं है। कृपया फार्मासिस्ट से जांच करवाएं।", [r.input_name]))
+                f"'{name_disp}' is not in the medicine database (or has a strength we do not know). Ask a pharmacist to check it.",
+                f"'{name_disp}' हमारे डेटाबेस में नहीं है। कृपया फार्मासिस्ट से जांच करवाएं।", [name_disp]))
 
     # 1. Duplicate active salt across different strips.
     by_salt: dict[str, list[int]] = {}

@@ -145,3 +145,21 @@ def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]
     assert parse_frequency("at night") == ["night"]
+
+
+def test_additional_interactions_and_blank_names():
+    r1 = analyze([], [S(name="Clopilet 75"), S(name="Omez 20")], TODAY)
+    assert any(f.code == "DRUG_INTERACTION" and f.severity == "AMBER" for f in r1.findings)
+    r2 = analyze([], [S(name="Metrogyl 400"), S(name="Warf 5")], TODAY)
+    assert any(f.code == "DRUG_INTERACTION" and f.severity == "RED" for f in r2.findings)
+    r3 = analyze([], [S(name="   ")], TODAY)
+    assert any(f.code == "UNRECOGNISED" and "unrecognised" in f.title.lower() for f in r3.findings)
+
+
+def test_image_mime_detection():
+    from vision_extractor import _image_mime
+    assert _image_mime(b"\x89PNG\r\n\x1a\n...") == "image/png"
+    assert _image_mime(b"\xff\xd8\xff\xe0...") == "image/jpeg"
+    assert _image_mime(b"RIFF\x00\x00\x00\x00WEBP...") == "image/webp"
+    assert _image_mime(b"unknown bytes") == "image/png"
+

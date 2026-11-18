@@ -125,6 +125,14 @@ def extract_offline(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
                             raw_text_rx=rx_text, raw_text_strips=st_text, findings=checks)
 
 
+def _image_mime(data: bytes) -> str:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"RIFF") and b"WEBP" in data[:16]:
+        return "image/webp"
+    return "image/png"
+
+
 def extract_gemini(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
     from google import genai
     from google.genai import types
@@ -134,7 +142,7 @@ def extract_gemini(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
     def call(prompt: str, img: bytes, model_cls):
         resp = client.models.generate_content(
             model=GEMINI_MODEL,
-            contents=[types.Part.from_bytes(data=img, mime_type="image/png"), prompt],
+            contents=[types.Part.from_bytes(data=img, mime_type=_image_mime(img)), prompt],
             config=types.GenerateContentConfig(
                 temperature=0, response_mime_type="application/json", response_schema=model_cls),
         )
