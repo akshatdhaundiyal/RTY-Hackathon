@@ -68,6 +68,68 @@ def test_llm_ocr_glitches():
     assert parse_frequency("1-0-1x") == ["morning", "night"]
 
 
+def test_never_all_clear_on_empty_or_one_sided():
+    for r, code in [(analyze([], [], TODAY), "NO_INPUT"),
+                    (analyze([], [S(name="Dolo 650", expiry="08/2027")], TODAY), "NO_PRESCRIPTION"),
+                    (analyze([P(name="Dolo 650")], [], TODAY), "NO_STRIPS")]:
+        assert r.status == "AMBER" and code in codes(r)
+        assert "All clear" not in r.summary_en
+
+
+def test_wrong_strength_is_not_silently_remapped():
+    for name, mg in [("Telma", 80), ("Pan", 20), ("Dolo", 1000), ("Losar", 25), ("Warf", 2)]:
+        assert resolve(name, mg).salts == [], name
+    r = analyze([P(name="Telma", strength_mg=80)], [S(name="Telma", strength_mg=40, expiry="03/2028")], TODAY)
+    assert r.status != "GREEN" and "UNRECOGNISED" in codes(r)
+    assert resolve("Dolo 650 SR").salts == []  # different formulation is not Dolo 650
+
+
+def test_combo_names_keep_all_salts():
+    assert resolve("Pan D").salts == ["pantoprazole", "domperidone"]
+    r = analyze([], [S(name="Zerodol P"), S(name="Dolo 650")], TODAY)
+    assert "DUPLICATE_SALT" in codes(r)
+
+
+def test_expiry_ignores_mfg_and_batch_dates():
+    assert parse_expiry("B.No 12/26 EXP 03/25") == date(2025, 3, 31)
+    assert parse_expiry("MFG 03/2024 EXP 02/2027") == date(2027, 2, 28)
+    assert parse_expiry("Mfg Jan-23 Exp Jan-26") == date(2026, 1, 31)
+    assert parse_expiry("B.No:DL4410EXP:08/2027") == date(2027, 8, 31)
+    assert parse_expiry("03-15-2027") is None  # ambiguous, not 2015
+    assert parse_expiry("Mar 31 2026") is None
+    assert parse_expiry("MFG 01/2024 12/2025") == date(2025, 12, 31)
+    r = analyze([], [S(name="Dolo 650", expiry="B.No 12/26 EXP 03/25")], TODAY)
+    assert "EXPIRED_BATCH" in codes(r)
+
+
+def test_attached_units_and_generics():
+    assert resolve("Warfarin 5mg").salts == ["warfarin"]
+    r = analyze([], [S(name="Warfarin 5mg", expiry="03/2028"), S(name="Brufen 400", expiry="03/2028")], TODAY)
+    inter = [f for f in r.findings if f.code == "DRUG_INTERACTION"]
+    assert inter and inter[0].severity == "RED"
+
+
+def test_partial_salt_overlap_is_not_a_match():
+    for rx_name, strip_name in [("Pan 40", "Pan-D"), ("Combiflam", "Brufen 400")]:
+        r = analyze([P(name=rx_name)], [S(name=strip_name, expiry="03/2028")], TODAY)
+        assert "SALT_MISMATCH" in codes(r) and "MATCH" not in codes(r) and r.status != "GREEN"
+
+
+def test_one_strip_serves_one_prescription_line():
+    r = analyze([P(name="Warf 5"), P(name="Warf 5")], [S(name="Warf 5", expiry="03/2028")], TODAY)
+    assert "DUPLICATE_PRESCRIPTION" in codes(r)
+
+
+def test_grounding_flags_dropped_and_invented_entries():
+    from safety_engine import grounding_findings
+    text = "Dolo 650  Crocin 500\nParacetamol IP 650 mg  Paracetamol IP 500 mg"
+    dropped = grounding_findings(text, [resolve("Dolo", 650)], "strips")
+    assert any(f.code == "UNEXTRACTED_MEDICINE" and "Crocin" in f.title for f in dropped)
+    invented = grounding_findings(text, [resolve("Dolo", 650), resolve("Warfarin", 5)], "strips")
+    assert any(f.code == "UNGROUNDED_ENTRY" for f in invented)
+    assert not grounding_findings(text, [resolve("Dolo", 650), resolve("Crocin", 500)], "strips")
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]

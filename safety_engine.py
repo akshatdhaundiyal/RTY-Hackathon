@@ -1,6 +1,7 @@
 """Deterministic clinical verifier. Pure Python, no I/O besides loading drugs_db.json.
 
 OCR / LLM output is only ever *input* here. Every safety verdict comes from these rules.
+Principle: when unsure, never guess and never say "all clear". Return AMBER.
 """
 from __future__ import annotations
 
@@ -49,9 +50,9 @@ class Finding(BaseModel):
 
 class Resolved(BaseModel):
     input_name: str
-    brand: Optional[str]  # canonical DB key, None if unrecognised
+    brand: Optional[str]  # canonical DB key, None if unrecognised or generic
     salts: list[str]
-    strength_mg: Optional[float]  # strength of first salt
+    strength_mg: Optional[float]  # printed strength
 
 
 class Report(BaseModel):
@@ -64,18 +65,25 @@ class Report(BaseModel):
     summary_hi: str
 
 
-# ---------- normalisation ----------
-_NOISE = re.compile(r"\b(tab|tabs|tablet|tablets|cap|capsule|ip|mg)\b\.?", re.I)
+def _amber(code: str, title: str, en: str, hi: str, drugs: Optional[list[str]] = None) -> Finding:
+    return Finding(code=code, severity="AMBER", title=title, message_en=en, message_hi=hi, drugs=drugs or [])
+
+
+# ---------- name resolution (strict: never map to a different product or strength) ----------
+_UNIT = re.compile(r"(\d)\s*(?:mg|mcg|µg|ug|g|ml)\b", re.I)  # "5mg" -> "5 "
+_NOISE = re.compile(r"\b(tab|tabs|tablet|tablets|cap|caps|capsule|capsules|ip|mg)\b\.?", re.I)
+_NUM = re.compile(r"\d+(?:\.\d+)?")
 
 
 def _norm(name: str) -> str:
-    s = _NOISE.sub(" ", name.lower())
-    s = re.sub(r"[^a-z0-9\- ]+", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return re.sub(r"^(tablet|tab|cap)(?=[a-z])", "", s).strip()  # "TabDolo" -> "dolo"
+    s = _UNIT.sub(r"\1 ", name.lower())
+    s = _NOISE.sub(" ", s)
+    s = re.sub(r"[^a-z0-9.\- ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
-_COMPACT = {k.replace(" ", ""): k for k in BRANDS}
+def _alpha(s: str) -> str:
+    return "".join(re.findall(r"[a-z]+", s))
 
 
 def canon_salt(s: str) -> str:
@@ -83,71 +91,118 @@ def canon_salt(s: str) -> str:
     return ALIASES.get(s, s)
 
 
+def _key_info(key: str):
+    salts = BRANDS[key]["salts"]
+    nums = [float(x) for x in _NUM.findall(key)]
+    printed = nums[-1] if nums else salts[0][1]
+    allowed = set(nums) | {float(mg) for _, mg in salts}
+    return _alpha(key), printed, allowed
+
+
+_INFO = {k: _key_info(k) for k in BRANDS}
+_BY_JOINED: dict[str, list[str]] = {}
+for _k, (_j, _, _) in _INFO.items():
+    _BY_JOINED.setdefault(_j, []).append(_k)
+
+
+def _fuzzy_joined(ja: str) -> Optional[str]:
+    best, score = None, 0.0
+    for j in _BY_JOINED:
+        if abs(len(j) - len(ja)) > 2:
+            continue
+        r = difflib.SequenceMatcher(None, ja, j).ratio()
+        if (r >= 0.85 or (r >= 0.75 and len(j) == len(ja))) and r > score:
+            best, score = j, r
+    return best
+
+
 def resolve(name: str, strength_mg: Optional[float] = None) -> Resolved:
-    """Map a printed/handwritten name to a known brand or generic salt (fuzzy, OCR-tolerant)."""
+    """Map a printed/handwritten name to a known brand or generic salt.
+
+    OCR typos in the *name* are tolerated. A strength that does not exist for the matched
+    brand (Telma 80, Pan 20) makes the item unrecognised instead of silently becoming another dose.
+    """
     n = _norm(name)
-    cands = [n]
-    if strength_mg:
-        cands.append(f"{n} {int(strength_mg) if float(strength_mg).is_integer() else strength_mg}")
-    key = None
-    for c in cands:
-        if c in BRANDS:
-            key = c
-            break
-        if c.replace(" ", "") in _COMPACT:  # OCR dropped spaces: "pantociddsr"
-            key = _COMPACT[c.replace(" ", "")]
-            break
-    if key is None:  # same first word, pick brand whose strength matches
-        first = n.split(" ")[0] if n else ""
-        same = [k for k in BRANDS if k.split(" ")[0] == first and first]
-        if same:
-            if strength_mg:
-                for k in same:
-                    if BRANDS[k]["salts"][0][1] == strength_mg:
-                        key = k
-                        break
-            if key is None and len(same) == 1:
-                key = same[0]
-    if key is None:
-        for c in cands:
-            m = difflib.get_close_matches(c, BRANDS.keys(), n=1, cutoff=0.82)
-            if m:
-                key = m[0]
-                break
-    if key is not None:
-        salts = BRANDS[key]["salts"]
-        return Resolved(input_name=name, brand=key, salts=[s for s, _ in salts], strength_mg=salts[0][1])
-    # generic salt name, e.g. "Paracetamol 500mg"
-    base = re.sub(r"\b\d+(\.\d+)?\b", " ", n).strip()
-    salt = canon_salt(base)
+    nums = [float(x) for x in _NUM.findall(n)]
+    wanted = float(strength_mg) if strength_mg else (nums[0] if nums else None)
+    ja = _alpha(n)
+    unresolved = Resolved(input_name=name, brand=None, salts=[], strength_mg=wanted)
+
+    variants = [ja] + [ja[len(p):] for p in ("tablet", "tab", "cap") if ja.startswith(p) and len(ja) > len(p) + 2]
+    joined = next((v for v in variants if v in _BY_JOINED), None)
+    if joined is None:
+        joined = next((j for j in (_fuzzy_joined(v) for v in variants) if j), None)
+
+    if joined is not None:
+        cands = list(_BY_JOINED[joined])
+        if wanted is not None:
+            cands = [k for k in cands if any(abs(wanted - a) < 1e-9 for a in _INFO[k][2])]
+            if not cands:
+                return unresolved
+            cands.sort(key=lambda k: abs(_INFO[k][1] - wanted))
+            key = cands[0]
+        elif len(cands) == 1:
+            key = cands[0]
+        elif len({tuple(s for s, _ in BRANDS[k]["salts"]) for k in cands}) == 1:  # same salts, strength unknown
+            return Resolved(input_name=name, brand=None, salts=[s for s, _ in BRANDS[cands[0]]["salts"]], strength_mg=None)
+        else:
+            return unresolved
+        return Resolved(input_name=name, brand=key, salts=[s for s, _ in BRANDS[key]["salts"]], strength_mg=_INFO[key][1])
+
+    # generic salt name, e.g. "Paracetamol 500mg", "Warfarin 5mg"
+    salt = canon_salt(" ".join(re.findall(r"[a-z]+", n)))
     if salt not in KNOWN_SALTS:
         m = difflib.get_close_matches(salt, KNOWN_SALTS, n=1, cutoff=0.85)
         salt = m[0] if m else salt
     if salt in KNOWN_SALTS:
-        return Resolved(input_name=name, brand=None, salts=[salt], strength_mg=strength_mg)
-    return Resolved(input_name=name, brand=None, salts=[], strength_mg=strength_mg)
+        return Resolved(input_name=name, brand=None, salts=[salt], strength_mg=wanted)
+    return unresolved
 
 
 # ---------- expiry ----------
 _MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}
+_NUM_DATE = re.compile(r"(?<!\d)(\d{1,2})\s*[/\-.]\s*(\d{4}|\d{2})(?!\d)(?![\s/\-.]*\d)")
+_NAME_DATE = re.compile(r"\b([a-z]{3})[a-z]*[\s\-/.,']*(\d{4}|\d{2})(?!\d)(?![\s/\-.,]*\d)")
+_MFG = re.compile(r"(mfg|mfd|manuf\w*|b\.?\s*no|batch|lot)\W*$")
+_EXP = re.compile(r"(exp\w*|use\s*before|best\s*before)\W*$")
 
 
-def parse_expiry(text: str) -> Optional[date]:
-    """Return the LAST day of the printed month (strips are valid through month end)."""
-    t = text.strip().lower()
-    m = re.search(r"(\d{1,2})\s*[/\-.]\s*(\d{4}|\d{2})\b", t)
-    if m:
-        mo, yr = int(m.group(1)), int(m.group(2))
-    else:
-        m = re.search(r"\b([a-z]{3})[a-z]*[\s\-/.,']*(\d{4}|\d{2})\b", t)
-        if not m or m.group(1) not in _MONTHS:
-            return None
-        mo, yr = _MONTHS[m.group(1)], int(m.group(2))
+def _eom(mo: int, yr: int) -> Optional[date]:
     if yr < 100:
         yr += 2000
     if not 1 <= mo <= 12:
         return None
     return date(yr, mo, calendar.monthrange(yr, mo)[1])
+
+
+def parse_expiry(text: str) -> Optional[date]:
+    """Return the LAST day of the printed EXPIRY month, or None when it cannot be read with certainty.
+
+    Dates labelled MFG/batch are ignored; a date labelled EXP wins; several unlabelled different
+    dates are ambiguous, so None (the caller raises AMBER).
+    """
+    t = text.strip().lower()
+    found: list[tuple[Optional[date], int]] = []  # (date, position in text)
+    for m in _NUM_DATE.finditer(t):
+        found.append((_eom(int(m.group(1)), int(m.group(2))), m.start()))
+    for m in _NAME_DATE.finditer(t):
+        if m.group(1) in _MONTHS:
+            found.append((_eom(_MONTHS[m.group(1)], int(m.group(2))), m.start()))
+    cands = []
+    for d, pos in found:
+        if d is None:
+            continue
+        before = t[max(0, pos - 14):pos]
+        if _MFG.search(before):
+            continue
+        cands.append((d, bool(_EXP.search(before))))
+    if not cands:
+        return None
+    labelled = [d for d, e in cands if e]
+    if labelled:
+        return max(labelled)
+    dates = {d for d, _ in cands}
+    return dates.pop() if len(dates) == 1 else None
 
 
 # ---------- schedule ----------
@@ -172,6 +227,49 @@ def parse_frequency(freq: Optional[str]) -> list[str]:
     return []
 
 
+# ---------- grounding: compare extracted entities with what the OCR text actually shows ----------
+_TERMS: dict[str, str] = {}
+for _key in BRANDS:
+    _w = re.findall(r"[a-z]+", _key)[0]
+    if len(_w) >= 4:
+        _TERMS[_w] = "brand"
+for _s in KNOWN_SALTS:
+    _TERMS[_s] = "salt"
+
+
+def mentioned_terms(text: str) -> set[str]:
+    t = text.lower()
+    return {term for term in _TERMS if re.search(rf"(?<![a-z]){re.escape(term)}(?![a-z])", t)}
+
+
+def grounding_findings(raw_text: str, resolved: list[Resolved], side: str) -> list[Finding]:
+    """AMBER when a known medicine name appears in the image text but was not extracted,
+    or an extracted name is nowhere in the image text. Catches LLM omissions and prompt injection."""
+    out: list[Finding] = []
+    covered = set()
+    for r in resolved:
+        covered.update(r.salts)
+        if r.brand:
+            covered.add(re.findall(r"[a-z]+", r.brand)[0])
+        covered.update(re.findall(r"[a-z]+", r.input_name.lower()))
+        covered.add(_alpha(r.input_name.lower()))
+    for term in sorted(mentioned_terms(raw_text) - covered):
+        out.append(_amber(
+            "UNEXTRACTED_MEDICINE", f"'{term.title()}' seen in the {side} but not read",
+            f"The text of the {side} mentions '{term}' but it was not read as a medicine. Check it by eye.",
+            f"{side} के टेक्स्ट में '{term}' दिख रहा है पर उसे दवा के रूप में नहीं पढ़ा गया। खुद देखें।", [term.title()]))
+    compact = _alpha(raw_text.lower())
+    for r in resolved:
+        first = re.findall(r"[a-z]+", _norm(r.input_name))
+        first = next((w for w in first if len(w) >= 4), None)
+        if first and first not in compact:
+            out.append(_amber(
+                "UNGROUNDED_ENTRY", f"'{r.input_name}' not found in the {side} text",
+                f"'{r.input_name}' was extracted but does not appear in the {side} text. Check it by eye.",
+                f"'{r.input_name}' निकाली गई पर {side} के टेक्स्ट में नहीं मिली। खुद देखें।", [r.input_name]))
+    return out
+
+
 # ---------- checks ----------
 def _tokens(r: Resolved) -> set[str]:
     t = set(r.salts)
@@ -188,26 +286,35 @@ def _same_strength(a: float, b: float) -> bool:
     return abs(a - b) <= 0.01 * max(a, b)
 
 
-def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today: Optional[date] = None) -> Report:
+def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today: Optional[date] = None,
+            extra_findings: Optional[list[Finding]] = None) -> Report:
     today = today or date.today()
-    findings: list[Finding] = []
+    findings: list[Finding] = list(extra_findings or [])
     rx = [resolve(p.name, p.strength_mg) for p in prescribed]
-    for r, p in zip(rx, prescribed):  # explicit strength on the Rx overrides DB default
-        if p.strength_mg is not None:
-            r.strength_mg = p.strength_mg
     st = [resolve(s.name, s.strength_mg) for s in strips]
-    for r, s in zip(st, strips):
-        if s.strength_mg is not None:
-            r.strength_mg = s.strength_mg
 
-    # 0. Unrecognised items: never guess.
+    # 0. Nothing to verify, or one side missing: never "all clear".
+    if not rx and not st:
+        findings.append(_amber("NO_INPUT", "No medicines were read",
+                               "No medicines could be read from the images. Retake clearer photos or check by hand.",
+                               "छवियों से कोई दवा नहीं पढ़ी जा सकी। साफ़ फोटो लें या खुद जांचें।"))
+    elif not st:
+        findings.append(_amber("NO_STRIPS", "No medicine strips were read",
+                               "No medicine strips could be read, so nothing could be checked against the prescription.",
+                               "कोई दवा की स्ट्रिप नहीं पढ़ी जा सकी, इसलिए पर्चे से जांच नहीं हो सकी।"))
+    elif not rx:
+        findings.append(_amber("NO_PRESCRIPTION", "No prescription was read",
+                               "No prescription could be read, so the strips could not be checked against it.",
+                               "कोई पर्चा नहीं पढ़ा जा सका, इसलिए स्ट्रिप की जांच पर्चे से नहीं हो सकी।"))
+
+    # 0b. Unrecognised items: never guess.
     for r in rx + st:
         if not r.salts:
-            findings.append(Finding(
-                code="UNRECOGNISED", severity="AMBER", title=f"Cannot identify {r.input_name}",
-                message_en=f"'{r.input_name}' is not in the medicine database. Ask a pharmacist to check it.",
-                message_hi=f"'{r.input_name}' हमारे डेटाबेस में नहीं है। कृपया फार्मासिस्ट से जांच करवाएं।",
-                drugs=[r.input_name]))
+            findings.append(_amber(
+                "UNRECOGNISED", f"Cannot identify {r.input_name}"
+                + (f" ({r.strength_mg:g})" if r.strength_mg else ""),
+                f"'{r.input_name}' is not in the medicine database (or has a strength we do not know). Ask a pharmacist to check it.",
+                f"'{r.input_name}' हमारे डेटाबेस में नहीं है। कृपया फार्मासिस्ट से जांच करवाएं।", [r.input_name]))
 
     # 1. Duplicate active salt across different strips.
     by_salt: dict[str, list[int]] = {}
@@ -223,43 +330,75 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
                 message_hi=f"{' और '.join(names)} दोनों में {salt} है। दोनों लेने से ओवरडोज़ हो सकता है। केवल एक ही लें।",
                 drugs=names))
 
-    # 2. Match prescription to strips; dosage mismatch / not prescribed.
-    matched_strips: set[int] = set()
-    for p, pr in zip(prescribed, rx):
+    # 1b. Same salt written on more than one prescription line.
+    rx_by_salt: dict[str, list[int]] = {}
+    for i, r in enumerate(rx):
+        for s in r.salts:
+            rx_by_salt.setdefault(s, []).append(i)
+    for salt, idx in rx_by_salt.items():
+        if len(idx) > 1:
+            names = [_label(rx[i]) for i in idx]
+            findings.append(_amber(
+                "DUPLICATE_PRESCRIPTION", f"{salt.title()} listed more than once on the prescription",
+                f"{' and '.join(names)} both contain {salt} on the prescription. Ask the doctor if this is intended.",
+                f"पर्चे में {' और '.join(names)} दोनों में {salt} है। डॉक्टर से पूछें कि क्या यह सही है।", names))
+
+    # 2. Match prescription lines to strips (each strip serves one line); dosage mismatch; extras.
+    assigned: set[int] = set()
+    for pr in rx:
         if not pr.salts:
             continue
-        hit = [i for i, sr in enumerate(st) if set(sr.salts) & set(pr.salts)]
-        exact = [i for i in hit if set(st[i].salts) == set(pr.salts)]
-        pick = exact[0] if exact else (hit[0] if hit else None)
-        if pick is None:
-            findings.append(Finding(
-                code="MISSING_STRIP", severity="AMBER", title=f"{_label(pr)} not on the table",
-                message_en=f"{_label(pr)} is prescribed but no matching strip was found.",
-                message_hi=f"{_label(pr)} लिखी गई है लेकिन उसकी स्ट्रिप नहीं मिली।",
-                drugs=[_label(pr)]))
+        exact = [i for i, sr in enumerate(st) if set(sr.salts) == set(pr.salts)]
+        free = [i for i in exact if i not in assigned]
+        if free:
+            pick = next((i for i in free if pr.strength_mg is None or st[i].strength_mg is None
+                         or _same_strength(pr.strength_mg, st[i].strength_mg)), free[0])
+            assigned.add(pick)
+            sr = st[pick]
+            if pr.strength_mg is not None and sr.strength_mg is not None:
+                if not _same_strength(pr.strength_mg, sr.strength_mg):
+                    over = sr.strength_mg > pr.strength_mg
+                    findings.append(Finding(
+                        code="DOSAGE_MISMATCH", severity="RED" if over else "AMBER",
+                        title=f"Wrong strength: {_label(sr)}",
+                        message_en=f"The doctor prescribed {pr.strength_mg:g} mg but the strip says {sr.strength_mg:g} mg"
+                                   f"{' (higher than prescribed)' if over else ' (lower than prescribed)'}. Check with the pharmacist.",
+                        message_hi=f"डॉक्टर ने {pr.strength_mg:g} mg लिखी है पर स्ट्रिप पर {sr.strength_mg:g} mg है। फार्मासिस्ट से पूछें।",
+                        drugs=[_label(pr), _label(sr)]))
+                elif not any(f.code == "DUPLICATE_SALT" and _label(sr) in f.drugs for f in findings):
+                    findings.append(Finding(
+                        code="MATCH", severity="GREEN", title=f"{_label(sr)} matches prescription",
+                        message_en=f"{_label(sr)} matches the prescription.",
+                        message_hi=f"{_label(sr)} पर्चे से मेल खाती है।", drugs=[_label(sr)]))
+            else:
+                findings.append(_amber(
+                    "STRENGTH_UNVERIFIED", f"Strength not verified: {_label(sr)}",
+                    f"The strength of {_label(sr)} could not be compared with the prescription. Check it by eye.",
+                    f"{_label(sr)} की मात्रा पर्चे से मिलाई नहीं जा सकी। खुद देखें।", [_label(sr)]))
             continue
-        matched_strips.update(exact or hit)
-        sr = st[pick]
-        if pr.strength_mg is not None and sr.strength_mg is not None and not _same_strength(pr.strength_mg, sr.strength_mg):
-            over = sr.strength_mg > pr.strength_mg
-            findings.append(Finding(
-                code="DOSAGE_MISMATCH", severity="RED" if over else "AMBER",
-                title=f"Wrong strength: {_label(sr)}",
-                message_en=f"The doctor prescribed {pr.strength_mg:g} mg but the strip says {sr.strength_mg:g} mg"
-                           f"{' (higher than prescribed)' if over else ' (lower than prescribed)'}. Check with the pharmacist.",
-                message_hi=f"डॉक्टर ने {pr.strength_mg:g} mg लिखी है पर स्ट्रिप पर {sr.strength_mg:g} mg है। फार्मासिस्ट से पूछें।",
-                drugs=[_label(pr), _label(sr)]))
-        elif not any(f.code == "DUPLICATE_SALT" and _label(sr) in f.drugs for f in findings):
-            findings.append(Finding(
-                code="MATCH", severity="GREEN", title=f"{_label(sr)} matches prescription",
-                message_en=f"{_label(sr)} matches the prescription.",
-                message_hi=f"{_label(sr)} पर्चे से मेल खाती है।", drugs=[_label(sr)]))
+        if exact:  # strip already used by another line: covered by DUPLICATE_PRESCRIPTION
+            continue
+        part = [i for i, sr in enumerate(st) if (set(sr.salts) & set(pr.salts)) and i not in assigned]
+        if part:
+            sr = st[part[0]]
+            assigned.add(part[0])
+            findings.append(_amber(
+                "SALT_MISMATCH", f"Different contents: {_label(sr)}",
+                f"{_label(pr)} is prescribed ({', '.join(pr.salts)}) but the strip {_label(sr)} contains "
+                f"{', '.join(sr.salts)}. It is not the same medicine. Check with the pharmacist.",
+                f"{_label(pr)} लिखी गई है पर {_label(sr)} में अलग दवाएं ({', '.join(sr.salts)}) हैं। फार्मासिस्ट से पूछें।",
+                [_label(pr), _label(sr)]))
+        else:
+            findings.append(_amber(
+                "MISSING_STRIP", f"{_label(pr)} not on the table",
+                f"{_label(pr)} is prescribed but no matching strip was found.",
+                f"{_label(pr)} लिखी गई है लेकिन उसकी स्ट्रिप नहीं मिली।", [_label(pr)]))
     for i, sr in enumerate(st):
-        if i not in matched_strips and sr.salts and prescribed:
-            findings.append(Finding(
-                code="NOT_PRESCRIBED", severity="AMBER", title=f"{_label(sr)} is not on the prescription",
-                message_en=f"{_label(sr)} was not prescribed. Do not take it without asking the doctor.",
-                message_hi=f"{_label(sr)} पर्चे में नहीं है। डॉक्टर से पूछे बिना न लें।", drugs=[_label(sr)]))
+        if i not in assigned and sr.salts and rx:
+            findings.append(_amber(
+                "NOT_PRESCRIBED", f"{_label(sr)} is not on the prescription",
+                f"{_label(sr)} was not prescribed. Do not take it without asking the doctor.",
+                f"{_label(sr)} पर्चे में नहीं है। डॉक्टर से पूछे बिना न लें।", [_label(sr)]))
 
     # 3. Interactions across all distinct drugs (strips + prescribed without a strip).
     drugs = list(st) + [pr for pr in rx if not any(set(pr.salts) & set(s.salts) for s in st)]
@@ -271,7 +410,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
                 if i == j or (a == b and j < i):
                     continue
                 if a in _tokens(di) and b in _tokens(dj):
-                    if a == b and set(di.salts) == set(dj.salts):
+                    if a == b and set(di.salts) & set(dj.salts):  # same salt: DUPLICATE_SALT already covers it
                         continue
                     key = (rule["a"], rule["b"], frozenset((i, j)))
                     if key in seen:
@@ -287,18 +426,28 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
     # 4. Expiry.
     for s, r in zip(strips, st):
         if not s.expiry:
+            findings.append(_amber(
+                "EXPIRY_MISSING", f"Expiry not read: {_label(r)}",
+                f"The expiry date of {_label(r)} was not read. Check it by eye before taking it.",
+                f"{_label(r)} की एक्सपायरी तारीख नहीं पढ़ी गई। लेने से पहले खुद देखें।", [_label(r)]))
             continue
         d = parse_expiry(s.expiry)
         if d is None:
-            findings.append(Finding(
-                code="EXPIRY_UNREADABLE", severity="AMBER", title=f"Check expiry: {_label(r)}",
-                message_en=f"Could not read the expiry date '{s.expiry}' on {_label(r)}. Check it by eye.",
-                message_hi=f"{_label(r)} की एक्सपायरी तारीख '{s.expiry}' पढ़ी नहीं जा सकी। खुद देखें।", drugs=[_label(r)]))
+            findings.append(_amber(
+                "EXPIRY_UNREADABLE", f"Check expiry: {_label(r)}",
+                f"Could not read the expiry date '{s.expiry}' on {_label(r)}. Check it by eye.",
+                f"{_label(r)} की एक्सपायरी तारीख '{s.expiry}' पढ़ी नहीं जा सकी। खुद देखें।", [_label(r)]))
         elif d < today:
             findings.append(Finding(
                 code="EXPIRED_BATCH", severity="RED", title=f"Expired: {_label(r)}",
                 message_en=f"{_label(r)} expired on {d:%d %b %Y}. Do not take it. Throw it away safely.",
                 message_hi=f"{_label(r)} की एक्सपायरी {d:%d/%m/%Y} को खत्म हो चुकी है। इसे न खाएं।", drugs=[_label(r)]))
+
+    # Never GREEN unless at least one medicine was actually verified against the prescription.
+    if not any(f.severity != "GREEN" for f in findings) and not any(f.code == "MATCH" for f in findings):
+        findings.append(_amber("NOTHING_VERIFIED", "Nothing could be verified",
+                               "No medicine could be verified against the prescription. Check by hand.",
+                               "कोई भी दवा पर्चे से सत्यापित नहीं हो सकी। खुद जांचें।"))
 
     order = {"RED": 0, "AMBER": 1, "GREEN": 2}
     findings.sort(key=lambda f: order[f.severity])
