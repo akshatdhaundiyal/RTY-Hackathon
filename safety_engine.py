@@ -351,8 +351,13 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
         exact = [i for i, sr in enumerate(st) if set(sr.salts) == set(pr.salts)]
         free = [i for i in exact if i not in assigned]
         if free:
-            pick = next((i for i in free if pr.strength_mg is None or st[i].strength_mg is None
-                         or _same_strength(pr.strength_mg, st[i].strength_mg)), free[0])
+            def _family(r: Resolved) -> str:
+                return re.findall(r"[a-z]+", r.brand)[0] if r.brand else _alpha(_norm(r.input_name))
+
+            # prefer the same brand family (Dolo <-> Dolo), then equal strength, then first free strip
+            pick = next((i for i in free if _family(st[i]) == _family(pr)),
+                        next((i for i in free if pr.strength_mg is None or st[i].strength_mg is None
+                              or _same_strength(pr.strength_mg, st[i].strength_mg)), free[0]))
             assigned.add(pick)
             sr = st[pick]
             if pr.strength_mg is not None and sr.strength_mg is not None:

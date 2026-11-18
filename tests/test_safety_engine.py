@@ -130,6 +130,17 @@ def test_grounding_flags_dropped_and_invented_entries():
     assert not grounding_findings(text, [resolve("Dolo", 650), resolve("Crocin", 500)], "strips")
 
 
+def test_trap_scenario_pairs_same_brand_and_keeps_all_findings():
+    import json
+    sc = json.loads((Path(__file__).resolve().parent.parent / "fixtures" / "scenarios.json").read_text(encoding="utf-8"))
+    expect = {"safe": ({"MATCH"}, "GREEN"),
+              "trap": ({"DUPLICATE_SALT", "DOSAGE_MISMATCH", "DRUG_INTERACTION", "EXPIRED_BATCH", "NOT_PRESCRIBED"}, "RED")}
+    for key, (want, status) in expect.items():
+        v = sc[key]
+        r = analyze([P(**p) for p in v["prescribed"]], [S(**s) for s in v["strips"]], TODAY)
+        assert r.status == status and want <= codes(r), (key, codes(r))
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]
