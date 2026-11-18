@@ -67,7 +67,7 @@
      "hi": "दर्द की दवा (NSAID) और खून पतला करने वाली दवा साथ लेने से गंभीर अंदरूनी रक्तस्राव हो सकता है।"},
     {"a": "nsaid", "b": "antiplatelet", "severity": "RED",
      "en": "NSAID painkiller with aspirin or clopidogrel raises bleeding risk and can blunt aspirin's heart protection.",
-     "hi": "दर्द की दवा के साथ एस्पिरिन या क्लोपिडोग्रेल लेने से रक्तस्राव का खतरा बढ़ता है।"},
+     "hi": "दर्द की दवा के साथ एस्पिरिन या क्लोपिडोग्रेल लेने से रक्तस्राव का खतरा बढ़ता है और दिल की सुरक्षा का असर कम हो सकता है।"},
     {"a": "antiplatelet", "b": "anticoagulant", "severity": "RED",
      "en": "Aspirin or clopidogrel together with warfarin greatly increases bleeding risk.",
      "hi": "एस्पिरिन या क्लोपिडोग्रेल के साथ वारफेरिन लेने से रक्तस्राव का खतरा बहुत बढ़ जाता है।"},
@@ -88,7 +88,7 @@
      "hi": "दर्द की दवा बीपी की दवा का असर कम कर सकती है और गुर्दों पर असर डाल सकती है।"},
     {"a": "nsaid", "b": "diuretic", "severity": "AMBER",
      "en": "NSAID painkillers can reduce the effect of water pills and strain the kidneys.",
-     "hi": "दर्द की दवा पानी निकालने वाली दवा का असर कम कर सकती है।"},
+     "hi": "दर्द की दवा पानी निकालने वाली दवा का असर कम कर सकती है और गुर्दों पर दबाव डाल सकती है।"},
     {"a": "arb", "b": "k_sparing", "severity": "AMBER",
      "en": "Telmisartan or losartan with spironolactone can raise blood potassium to unsafe levels.",
      "hi": "टेल्मिसर्टन/लोसार्टन के साथ स्पिरोनोलैक्टोन से पोटैशियम खतरनाक स्तर तक बढ़ सकता है।"},
@@ -103,9 +103,9 @@
      "hi": "एसिडिटी की एक ही प्रकार की दो दवाएं (PPI) साथ लेने से कोई फायदा नहीं, साइड इफेक्ट बढ़ सकते हैं।"},
     {"a": "antihistamine", "b": "antihistamine", "severity": "AMBER",
      "en": "Two allergy medicines together can cause strong drowsiness.",
-     "hi": "एलर्जी की दो दवाएं साथ लेने से बहुत नींद आ सकती है।"},
+     "hi": "एलर्जी की दो दवाएं साथ लेने से बहुत अधिक सुस्ती और नींद आ सकती है।"},
     {"a": "clopidogrel", "b": "omeprazole", "severity": "AMBER",
      "en": "Omeprazole can reduce how well clopidogrel works. Pantoprazole is usually preferred.",
-     "hi": "ओमेप्राज़ोल क्लोपिडोग्रेल का असर कम कर सकता है। डॉक्टर से पूछें।"}
+     "hi": "ओमेप्राज़ोल क्लोपिडोग्रेल का असर कम कर सकता है (आमतौर पर पैंटोप्राज़ोल बेहतर विकल्प है)। डॉक्टर से पूछें।"}
   ]
 }

@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 
-from safety_engine import Finding, PhysicalStrip, PrescribedDrug, grounding_findings, resolve
+from safety_engine import SIDE_HI, Finding, PhysicalStrip, PrescribedDrug, grounding_findings, resolve
 
 log = logging.getLogger("mediguard")
 
@@ -158,7 +158,7 @@ def _clip(text: str, label: str, findings: list[Finding]) -> str:
     findings.append(Finding(
         code="OCR_TRUNCATED", severity="AMBER", title=f"Very long {label} text",
         message_en=f"The {label} has a lot of text, so only the first part was read. Check the rest by eye.",
-        message_hi=f"{label} में बहुत ज़्यादा टेक्स्ट है, इसलिए केवल पहला हिस्सा पढ़ा गया। बाकी खुद देखें।"))
+        message_hi=f"{SIDE_HI.get(label, label)} में बहुत ज़्यादा लिखावट है, इसलिए केवल पहला हिस्सा पढ़ा गया। बाकी कृपया खुद देखकर जांच लें।"))
     return text[:MAX_OCR_CHARS]
 
 

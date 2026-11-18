@@ -291,6 +291,9 @@ for _s in KNOWN_SALTS:
     _TERMS[_s] = "salt"
 
 
+SIDE_HI = {"prescription": "पर्चे की फ़ोटो", "medicine strips": "दवा की स्ट्रिप की फ़ोटो"}
+
+
 def mentioned_terms(text: str) -> set[str]:
     t = text.lower()
     return {term for term in _TERMS if re.search(rf"(?<![a-z]){re.escape(term)}(?![a-z])", t)}
@@ -300,6 +303,7 @@ def grounding_findings(raw_text: str, resolved: list[Resolved], side: str) -> li
     """AMBER when a known medicine name appears in the image text but was not extracted,
     or an extracted name is nowhere in the image text. Catches LLM omissions and prompt injection."""
     out: list[Finding] = []
+    side_hi = SIDE_HI.get(side, side)
     covered = set()
     for r in resolved:
         covered.update(r.salts)
@@ -311,7 +315,7 @@ def grounding_findings(raw_text: str, resolved: list[Resolved], side: str) -> li
         out.append(_amber(
             "UNEXTRACTED_MEDICINE", f"'{term.title()}' seen in the {side} but not read",
             f"The text of the {side} mentions '{term}' but it was not read as a medicine. Check it by eye.",
-            f"{side} के टेक्स्ट में '{term}' दिख रहा है पर उसे दवा के रूप में नहीं पढ़ा गया। खुद देखें।", [term.title()]))
+            f"{side_hi} में '{term}' लिखा दिख रहा है, पर इसे दवा के रूप में नहीं पढ़ा गया। कृपया खुद देखकर जांच लें।", [term.title()]))
     compact = _alpha(raw_text.lower())
     for r in resolved:
         first = re.findall(r"[a-z]+", _norm(r.input_name))
@@ -320,7 +324,7 @@ def grounding_findings(raw_text: str, resolved: list[Resolved], side: str) -> li
             out.append(_amber(
                 "UNGROUNDED_ENTRY", f"'{r.input_name}' not found in the {side} text",
                 f"'{r.input_name}' was extracted but does not appear in the {side} text. Check it by eye.",
-                f"'{r.input_name}' निकाली गई पर {side} के टेक्स्ट में नहीं मिली। खुद देखें।", [r.input_name]))
+                f"'{r.input_name}' पढ़ी गई, लेकिन यह {side_hi} में नहीं मिली। कृपया खुद देखकर जांच लें।", [r.input_name]))
     return out
 
 
@@ -351,15 +355,15 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
     if not rx and not st:
         findings.append(_amber("NO_INPUT", "No medicines were read",
                                "No medicines could be read from the images. Retake clearer photos or check by hand.",
-                               "छवियों से कोई दवा नहीं पढ़ी जा सकी। साफ़ फोटो लें या खुद जांचें।"))
+                               "फ़ोटो से कोई भी दवा नहीं पढ़ी जा सकी। कृपया साफ़ फ़ोटो लें या खुद जांचें।"))
     elif not st:
         findings.append(_amber("NO_STRIPS", "No medicine strips were read",
                                "No medicine strips could be read, so nothing could be checked against the prescription.",
-                               "कोई दवा की स्ट्रिप नहीं पढ़ी जा सकी, इसलिए पर्चे से जांच नहीं हो सकी।"))
+                               "दवा की कोई स्ट्रिप नहीं पढ़ी जा सकी, इसलिए पर्चे से मिलान नहीं हो सका।"))
     elif not rx:
         findings.append(_amber("NO_PRESCRIPTION", "No prescription was read",
                                "No prescription could be read, so the strips could not be checked against it.",
-                               "कोई पर्चा नहीं पढ़ा जा सका, इसलिए स्ट्रिप की जांच पर्चे से नहीं हो सकी।"))
+                               "पर्चे की फ़ोटो पढ़ी नहीं जा सकी, इसलिए दवाओं का मिलान नहीं हो सका।"))
 
     # 0b. Unrecognised items: never guess.
     for r in rx + st:
@@ -423,7 +427,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
                         title=f"Wrong strength: {_label(sr)}",
                         message_en=f"The doctor prescribed {pr.strength_mg:g} mg but the strip says {sr.strength_mg:g} mg"
                                    f"{' (higher than prescribed)' if over else ' (lower than prescribed)'}. Check with the pharmacist.",
-                        message_hi=f"डॉक्टर ने {pr.strength_mg:g} mg लिखी है पर स्ट्रिप पर {sr.strength_mg:g} mg है। फार्मासिस्ट से पूछें।",
+                        message_hi=f"डॉक्टर ने {pr.strength_mg:g} mg लिखी है पर स्ट्रिप पर {sr.strength_mg:g} mg है ({'पर्चे से अधिक मात्रा' if over else 'पर्चे से कम मात्रा'})। फार्मासिस्ट से पूछें।",
                         drugs=[_label(pr), _label(sr)]))
                 elif not any(f.code == "DUPLICATE_SALT" and _label(sr) in f.drugs for f in findings):
                     findings.append(Finding(
@@ -434,7 +438,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
                 findings.append(_amber(
                     "STRENGTH_UNVERIFIED", f"Strength not verified: {_label(sr)}",
                     f"The strength of {_label(sr)} could not be compared with the prescription. Check it by eye.",
-                    f"{_label(sr)} की मात्रा पर्चे से मिलाई नहीं जा सकी। खुद देखें।", [_label(sr)]))
+                    f"{_label(sr)} की मात्रा पर्चे से मिलाई नहीं जा सकी। कृपया खुद देखकर जांच लें।", [_label(sr)]))
             continue
         if exact:  # strip already used by another line: covered by DUPLICATE_PRESCRIPTION
             continue
@@ -489,19 +493,19 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
             findings.append(_amber(
                 "EXPIRY_MISSING", f"Expiry not read: {_label(r)}",
                 f"The expiry date of {_label(r)} was not read. Check it by eye before taking it.",
-                f"{_label(r)} की एक्सपायरी तारीख नहीं पढ़ी गई। लेने से पहले खुद देखें।", [_label(r)]))
+                f"{_label(r)} की एक्सपायरी तारीख नहीं पढ़ी गई। लेने से पहले कृपया खुद देखकर जांच लें।", [_label(r)]))
             continue
         d = parse_expiry(s.expiry)
         if d is None:
             findings.append(_amber(
                 "EXPIRY_UNREADABLE", f"Check expiry: {_label(r)}",
                 f"Could not read the expiry date '{s.expiry}' on {_label(r)}. Check it by eye.",
-                f"{_label(r)} की एक्सपायरी तारीख '{s.expiry}' पढ़ी नहीं जा सकी। खुद देखें।", [_label(r)]))
+                f"{_label(r)} की एक्सपायरी तारीख '{s.expiry}' पढ़ी नहीं जा सकी। कृपया खुद देखकर जांच लें।", [_label(r)]))
         elif d < today:
             findings.append(Finding(
                 code="EXPIRED_BATCH", severity="RED", title=f"Expired: {_label(r)}",
                 message_en=f"{_label(r)} expired on {d:%d %b %Y}. Do not take it. Throw it away safely.",
-                message_hi=f"{_label(r)} की एक्सपायरी {d:%d/%m/%Y} को खत्म हो चुकी है। इसे न खाएं।", drugs=[_label(r)]))
+                message_hi=f"{_label(r)} की एक्सपायरी तारीख ({d:%d/%m/%Y}) बीत चुकी है। इसे बिल्कुल न खाएं।", drugs=[_label(r)]))
 
     # 5. Daily schedule from the prescription; a written timing we cannot read is flagged, not dropped.
     schedule: dict[str, list[str]] = {s: [] for s in _SLOTS}
@@ -520,7 +524,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
     if not any(f.severity != "GREEN" for f in findings) and not any(f.code == "MATCH" for f in findings):
         findings.append(_amber("NOTHING_VERIFIED", "Nothing could be verified",
                                "No medicine could be verified against the prescription. Check by hand.",
-                               "कोई भी दवा पर्चे से सत्यापित नहीं हो सकी। खुद जांचें।"))
+                               "पर्चे से किसी भी दवा का मिलान नहीं हो सका। कृपया खुद जांचें।"))
 
     order = {"RED": 0, "AMBER": 1, "GREEN": 2}
     findings.sort(key=lambda f: order[f.severity])
@@ -532,6 +536,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
         hi = "सब ठीक है। आपकी दवाएं पर्चे से मेल खाती हैं।"
     else:
         en = f"Warning. {len(bad)} problem{'s' if len(bad) > 1 else ''} found. " + " ".join(f.message_en for f in bad)
-        hi = f"सावधान। {len(bad)} समस्या मिली। " + " ".join(f.message_hi for f in bad)
+        hi = (f"सावधान। {len(bad)} {'समस्या मिली है' if len(bad) == 1 else 'समस्याएं मिली हैं'}। "
+              + " ".join(f.message_hi for f in bad))
     return Report(status=status, findings=findings, schedule=schedule, prescribed=rx, strips=st,
                   summary_en=en, summary_hi=hi)

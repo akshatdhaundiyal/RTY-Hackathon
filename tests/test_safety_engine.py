@@ -200,6 +200,23 @@ def test_unclear_schedule_raises_amber_not_silence():
     assert r.schedule == {"morning": [], "afternoon": [], "night": []}
 
 
+def test_hindi_summary_plural_and_dose_direction():
+    one = analyze([], [S(name="Dolo 650", expiry="03/2028")], TODAY)           # 1 problem: no prescription
+    assert "1 समस्या मिली है" in one.summary_hi
+    many = analyze([P(name="Dolo 500")], [S(name="Dolo 650", expiry="03/2028"), S(name="Crocin 500", expiry="03/2028")], TODAY)
+    assert "समस्याएं मिली हैं" in many.summary_hi
+    mismatch = next(f for f in many.findings if f.code == "DOSAGE_MISMATCH")
+    assert "पर्चे से अधिक मात्रा" in mismatch.message_hi  # strip is higher than prescribed
+    lower = analyze([P(name="Dolo 650")], [S(name="Dolo 500", expiry="03/2028")], TODAY)
+    assert "पर्चे से कम मात्रा" in next(f for f in lower.findings if f.code == "DOSAGE_MISMATCH").message_hi
+
+
+def test_grounding_hindi_uses_hindi_side_names():
+    from safety_engine import grounding_findings
+    f = grounding_findings("Dolo 650 Crocin 500", [resolve("Dolo", 650)], "medicine strips")[0]
+    assert "दवा की स्ट्रिप की फ़ोटो" in f.message_hi and "medicine strips" not in f.message_hi
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]
