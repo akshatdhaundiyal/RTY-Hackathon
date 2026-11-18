@@ -96,3 +96,10 @@ scenarios = {
 }
 (OUT / "scenarios.json").write_text(json.dumps(scenarios, indent=2), encoding="utf-8")
 print("fixtures written to", OUT)
+
+
+# Single-medicine prescription for the real Dolo-650 strip photos (fixtures/real/dolo650.jpeg, camera photos):
+# matches a Dolo 650 strip, so the result is a MATCH (expiry may still need checking by eye).
+prescription(OUT / "rx_dolo650.png", "Dr. A. Sharma", "Ramesh Kumar",
+             [("Tab Dolo 650", "1-0-1", 5)])
+print("rx_dolo650.png written")
