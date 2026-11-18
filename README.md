@@ -118,11 +118,21 @@ See [RULES.md](RULES.md) for the full list.
 
 ## Your project
 
-_Replace this section with your project README:_
-- **Team:**
-- **Track:**
-- **Problem:** who faces it and why it happens
-- **What we built:** the core workflow
-- **The hardest part:** how we solved it
+# 💊 MediGuard: Prescription & Blister-Pack Discrepancy Verifier
+
+- **Team:** MediGuard (Akshat Dhaundiyal)
+- **Track:** Build for the Physical World (`physical-world`), with a Healthcare & Eldercare focus
+- **Problem:** Elderly patients and their caregivers in India juggle 5+ medicines with look-alike brand names. Dolo, Crocin and Calpol are all paracetamol; Brufen plus Ecosprin is a bleeding risk. Prescriptions are abbreviated or handwritten, strips have tiny print, and doses get doubled by accident when a second brand of the same salt is taken. Pharmacists are not always at hand, and many homes have poor connectivity.
+- **What we built:** Photograph the prescription and the medicine strips (or drag in images). MediGuard extracts the drugs and returns Green/Amber/Red cards, a Morning/Afternoon/Night schedule, and a read-aloud warning in English or Hindi.
+- **The hardest part:** making it *safe*, not just smart. The model never judges safety. Vision/OCR extracts text, local Gemma 4 E2B (temperature 0, JSON-schema constrained) normalises it, and a deterministic rule engine (`safety_engine.py`) decides: `DUPLICATE_SALT`, `DOSAGE_MISMATCH`, `DRUG_INTERACTION`, `EXPIRED_BATCH`. It maps ~40 Indian brands to salts, tolerates OCR typos with fuzzy matching, and flags anything it cannot identify instead of guessing. Runs fully offline (RapidOCR on CPU, so no VRAM fight with Ollama); Gemini Vision is used when `GEMINI_API_KEY` is set.
 - **How to run it:**
-- **Demo / screenshots:**
+```bash
+uv venv .venv && uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+ollama pull gemma4:e2b            # offline mode only
+.venv/Scripts/python -m uvicorn app:app --host 127.0.0.1 --port 8000
+.venv/Scripts/python -m pytest -q tests   # rule-engine tests
+```
+Open http://127.0.0.1:8000. Optional: copy `.env.example` to `.env` (not auto-loaded; export the variables) to enable Gemini.
+- **Demo:** click **Scenario 2** for the trap: Dolo 650 + Crocin 500 (hidden duplicate paracetamol, plus Crocin expired), Brufen + Ecosprin (bleeding interaction), and Dolo 650 on the strip vs 500 prescribed. Click **Scenario 1** for the safe match. Then upload `fixtures/rx_sample.png` and `fixtures/strips_mismatch.png` to run the real OCR + Gemma pipeline (about 1-2 minutes on a 6 GB GPU, mostly model load).
+
+_MediGuard is a safety aid, not medical advice._

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediGuard</title>
+<style>
+:root{--bg:#f4f6fa;--card:#fff;--ink:#14213d;--mute:#5c6780;--line:#dde2ec;--red:#c62828;--redbg:#fdecea;--amb:#b26a00;--ambbg:#fff4e0;--grn:#1b7f3b;--grnbg:#e6f6ea;--pri:#1d4ed8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}
+h1{margin:0;font-size:28px} .sub{color:var(--mute);margin:2px 0 14px}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+button{font:inherit;font-weight:600;border:0;border-radius:12px;padding:12px 18px;cursor:pointer;background:var(--pri);color:#fff}
+button.sec{background:#fff;color:var(--pri);border:2px solid var(--pri)}
+button:disabled{opacity:.5;cursor:wait}
+.drop{flex:1 1 300px;background:var(--card);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;min-height:200px}
+.drop.over{border-color:var(--pri);background:#eef3ff}
+.drop h3{margin:0 0 6px;font-size:18px}
+.drop img,.drop video{max-width:100%;max-height:200px;border-radius:8px;display:block;margin:8px auto}
+.drop small{color:var(--mute)}
+.banner{border-radius:14px;padding:16px 20px;font-size:22px;font-weight:700;margin:16px 0 8px}
+.banner.RED{background:var(--redbg);color:var(--red);border:2px solid var(--red)}
+.banner.AMBER{background:var(--ambbg);color:var(--amb);border:2px solid var(--amb)}
+.banner.GREEN{background:var(--grnbg);color:var(--grn);border:2px solid var(--grn)}
+.card{border-left:8px solid;border-radius:10px;padding:12px 16px;margin:10px 0;background:var(--card)}
+.card.RED{border-color:var(--red);background:var(--redbg)} .card.AMBER{border-color:var(--amb);background:var(--ambbg)} .card.GREEN{border-color:var(--grn);background:var(--grnbg)}
+.card b{display:block} .tag{font-size:12px;font-weight:700;letter-spacing:.05em;color:var(--mute)}
+.sched{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:8px 0}
+.slot{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+.slot h4{margin:0 0 6px} .pill{display:inline-block;background:#e8eefc;color:#1e3a8a;border-radius:99px;padding:3px 12px;margin:2px;font-size:16px;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:15px;background:#fff} td,th{border:1px solid var(--line);padding:4px 8px;text-align:left}
+details{margin:10px 0;color:var(--mute)} pre{white-space:pre-wrap;font-size:13px}
+.err{background:var(--redbg);color:var(--red);padding:12px;border-radius:10px;margin:10px 0}
+.disc{font-size:14px;color:var(--mute);margin-top:24px}
+.spin{display:inline-block;width:18px;height:18px;border:3px solid #cbd5f5;border-top-color:var(--pri);border-radius:50%;animation:s 1s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main>
+  <h1>💊 MediGuard</h1>
+  <p class="sub">Check that your medicines match the doctor's prescription. Works offline.</p>
+
+  <div class="row" id="scn"></div>
+
+  <div class="row" style="margin-top:14px">
+    <div class="drop" id="dz-rx"><h3>1. Prescription</h3><small>Drop an image, choose a file, or use the camera</small><div class="prev"></div>
+      <div class="row" style="justify-content:center;margin-top:6px"><button class="sec" data-pick>Choose file</button><button class="sec" data-cam>📷 Camera</button></div></div>
+    <div class="drop" id="dz-st"><h3>2. Medicine strips</h3><small>Put all strips in one photo</small><div class="prev"></div>
+      <div class="row" style="justify-content:center;margin-top:6px"><button class="sec" data-pick>Choose file</button><button class="sec" data-cam>📷 Camera</button></div></div>
+  </div>
+  <div class="row" style="margin-top:12px"><button id="go">Verify my medicines</button></div>
+  <div id="out"></div>
+  <p class="disc">MediGuard is a safety aid, not medical advice. Always confirm with your doctor or pharmacist.</p>
+</main>
+
+<script>
+const $=s=>document.querySelector(s), files={rx:null,st:null};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function setFile(which,blob){
+  files[which]=blob;
+  const dz=$(which==='rx'?'#dz-rx':'#dz-st');
+  dz.querySelector('.prev').innerHTML=`<img src="${URL.createObjectURL(blob)}">`;
+}
+for(const [which,id] of [['rx','#dz-rx'],['st','#dz-st']]){
+  const dz=$(id), inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=()=>inp.files[0]&&setFile(which,inp.files[0]);
+  dz.querySelector('[data-pick]').onclick=()=>inp.click();
+  dz.ondragover=e=>{e.preventDefault();dz.classList.add('over')};
+  dz.ondragleave=()=>dz.classList.remove('over');
+  dz.ondrop=e=>{e.preventDefault();dz.classList.remove('over');const f=e.dataTransfer.files[0];f&&setFile(which,f)};
+  dz.querySelector('[data-cam]').onclick=()=>camera(which,dz);
+}
+async function camera(which,dz){
+  const prev=dz.querySelector('.prev');
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    prev.innerHTML='<video autoplay playsinline></video><button>Take photo</button>';
+    const v=prev.querySelector('video'); v.srcObject=stream;
+    prev.querySelector('button').onclick=()=>{
+      const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+      c.getContext('2d').drawImage(v,0,0); stream.getTracks().forEach(t=>t.stop());
+      c.toBlob(b=>setFile(which,b),'image/png');
+    };
+  }catch(e){prev.innerHTML='<div class="err">Camera not available. Please choose a file.</div>'}
+}
+
+fetch('/api/scenarios').then(r=>r.json()).then(list=>{
+  $('#scn').innerHTML=list.map(s=>`<button class="sec" data-s="${s.id}">${esc(s.title)}</button>`).join('');
+  document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>run(new URLSearchParams({scenario:b.dataset.s}),true,list.find(x=>x.id===b.dataset.s)));
+});
+$('#go').onclick=()=>{
+  if(!files.rx||!files.st){$('#out').innerHTML='<div class="err">Please add both the prescription and the medicine strips image.</div>';return}
+  const fd=new FormData(); fd.append('rx',files.rx,'rx.png'); fd.append('strips',files.st,'strips.png'); run(fd,false);
+};
+
+async function run(body,instant,sc){
+  const out=$('#out'); document.querySelectorAll('button').forEach(b=>b.disabled=true);
+  if(sc){ // show the scenario's images in the drop zones
+    $('#dz-rx .prev').innerHTML=`<img src="${sc.rx_image}">`; $('#dz-st .prev').innerHTML=`<img src="${sc.strips_image}">`;
+  }
+  out.innerHTML=instant?'':'<p><span class="spin"></span>Reading images on this device… the first run can take a minute or two.</p>';
+  try{
+    const r=await fetch('/api/analyze',{method:'POST',body});
+    const j=await r.json(); if(!r.ok) throw new Error(j.detail||r.statusText);
+    render(j);
+  }catch(e){out.innerHTML=`<div class="err">${esc(e.message)}</div>`}
+  document.querySelectorAll('button').forEach(b=>b.disabled=false);
+}
+
+const TITLE={RED:'⛔ Do NOT take these medicines until checked',AMBER:'⚠️ Check with a pharmacist or doctor',GREEN:'✅ All clear — medicines match the prescription'};
+let lastReport=null;
+function render({report,extracted,mode}){
+  lastReport=report;
+  const cards=report.findings.map(f=>`<div class="card ${f.severity}"><span class="tag">${f.code.replace(/_/g,' ')}</span><b>${esc(f.title)}</b>${esc(f.message_en)}<div style="color:var(--mute);margin-top:4px">${esc(f.message_hi)}</div></div>`).join('');
+  const slots=[['morning','🌅 Morning'],['afternoon','☀️ Afternoon'],['night','🌙 Night']].map(([k,l])=>
+    `<div class="slot"><h4>${l}</h4>${(report.schedule[k]||[]).map(n=>`<span class="pill">${esc(n)}</span>`).join('')||'<small>—</small>'}</div>`).join('');
+  const rows=(a,cols)=>`<table><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr>${a.map(x=>`<tr>${cols.map(c=>`<td>${esc(x[c.toLowerCase().replace(' ','_')]??'')}</td>`).join('')}</tr>`).join('')}</table>`;
+  $('#out').innerHTML=`<div class="banner ${report.status}">${TITLE[report.status]}</div>
+   <div class="row"><button id="en">🔊 Read aloud (English)</button><button id="hi" class="sec">🔊 हिन्दी में सुनें</button><button id="stop" class="sec">Stop</button></div>
+   ${cards}<h3>Daily schedule (from prescription)</h3><div class="sched">${slots}</div>
+   <details><summary>What was read from the images (mode: ${esc(mode)})</summary>
+     <h4>Prescription</h4>${rows(extracted.prescribed,['Name','Strength_mg','Frequency','Duration_days'])}
+     <h4>Strips</h4>${rows(extracted.strips,['Name','Strength_mg','Expiry','Batch'])}
+     ${extracted.raw_text_strips?`<h4>Raw OCR</h4><pre>${esc(extracted.raw_text_rx)}\n---\n${esc(extracted.raw_text_strips)}</pre>`:''}</details>`;
+  $('#en').onclick=()=>speak(report.summary_en,'en-IN'); $('#hi').onclick=()=>speak(report.summary_hi,'hi-IN');
+  $('#stop').onclick=()=>speechSynthesis.cancel();
+}
+function speak(text,lang){
+  speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.lang=lang; u.rate=.9;
+  const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-')===lang)||speechSynthesis.getVoices().find(v=>v.lang.startsWith(lang.slice(0,2)));
+  if(v)u.voice=v; speechSynthesis.speak(u);
+}
+</script>
+</body>
+</html>
