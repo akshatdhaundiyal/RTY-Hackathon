@@ -1,0 +1,25 @@
+[project]
+name = "mediguard"
+version = "0.1.0"
+description = "Offline-capable prescription and blister-pack discrepancy verifier for elderly patients and caregivers"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "httpx",
+    "rapidocr-onnxruntime",
+    "pillow",
+    "google-genai",
+    "python-multipart",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false  # an app, not an installable library
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

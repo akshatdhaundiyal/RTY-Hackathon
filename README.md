@@ -127,12 +127,14 @@ See [RULES.md](RULES.md) for the full list.
 - **The hardest part:** making it *safe*, not just smart. The model never judges safety. Vision/OCR extracts text, local Gemma 4 E2B (temperature 0, JSON-schema constrained) normalises it, and a deterministic rule engine (`safety_engine.py`) decides: `DUPLICATE_SALT`, `DOSAGE_MISMATCH`, `DRUG_INTERACTION`, `EXPIRED_BATCH`. It maps ~40 Indian brands to salts, tolerates OCR typos with fuzzy matching, and flags anything it cannot identify instead of guessing. Offline by default (RapidOCR on CPU, so no VRAM fight with Ollama). If `GEMINI_API_KEY` is set, Gemini Vision is used instead and the images are sent to Google; the page says which mode ran.
 - **How to run it:**
 ```bash
-uv venv .venv && uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+uv sync                           # creates .venv from pyproject.toml + uv.lock (exact versions)
 ollama pull gemma4:e2b            # offline mode only
-.venv/Scripts/python -m uvicorn app:app --host 127.0.0.1 --port 8000
-.venv/Scripts/python -m pytest -q tests   # rule-engine tests
+uv run uvicorn app:app --host 127.0.0.1 --port 8000
+uv run pytest                     # rule-engine and extraction tests
 ```
-Open http://127.0.0.1:8000. Optional: copy `.env.example` to `.env` (not auto-loaded; export the variables) to enable Gemini.
+Works the same on Windows, macOS and Linux. Without `uv`: `python -m venv .venv`, activate it, `pip install -r requirements.txt` (exported from the lock file), then `python -m uvicorn app:app --host 127.0.0.1 --port 8000`.
+
+Open http://127.0.0.1:8000. Optional: to enable Gemini, set `GEMINI_API_KEY` in the shell before starting (`.env` is not auto-loaded): PowerShell `$env:GEMINI_API_KEY="..."`, bash `export GEMINI_API_KEY=...`.
 - **Demo:** click **Scenario 2** for the trap: Dolo 650 + Crocin 500 (hidden duplicate paracetamol, plus Crocin expired), Brufen + Ecosprin (bleeding interaction), and Dolo 650 on the strip vs 500 prescribed. Click **Scenario 1** for the safe match. Then upload `fixtures/rx_sample.png` and `fixtures/strips_mismatch.png` to run the real OCR + Gemma pipeline (about 1-2 minutes on a 6 GB GPU, mostly model load).
 
 _MediGuard is a safety aid, not medical advice._
