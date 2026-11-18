@@ -29,3 +29,6 @@ Thumbs.db
 .agents/
 .claude/
 skills-lock.json
+
+# Generated robustness images (regenerate with fixtures/make_hard_fixtures.py)
+fixtures/hard/
