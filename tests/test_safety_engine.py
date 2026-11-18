@@ -77,9 +77,9 @@ def test_never_all_clear_on_empty_or_one_sided():
 
 
 def test_wrong_strength_is_not_silently_remapped():
-    for name, mg in [("Telma", 80), ("Pan", 20), ("Dolo", 1000), ("Losar", 25), ("Warf", 2)]:
+    for name, mg in [("Telma", 60), ("Pan", 20), ("Dolo", 1000), ("Losar", 75), ("Warf", 3)]:
         assert resolve(name, mg).salts == [], name
-    r = analyze([P(name="Telma", strength_mg=80)], [S(name="Telma", strength_mg=40, expiry="03/2028")], TODAY)
+    r = analyze([P(name="Telma", strength_mg=60)], [S(name="Telma", strength_mg=40, expiry="03/2028")], TODAY)
     assert r.status != "GREEN" and "UNRECOGNISED" in codes(r)
     assert resolve("Dolo 650 SR").salts == []  # different formulation is not Dolo 650
 

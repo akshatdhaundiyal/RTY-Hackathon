@@ -146,12 +146,12 @@ The model never judges safety. The pipeline has three separate layers:
 
 1. **Reading:** RapidOCR (CPU/ONNX, so no GPU fight with Ollama) extracts the text. Gemini Vision is used instead only if `GEMINI_API_KEY` is set.
 2. **Extraction:** local Gemma 4 E2B (`temperature=0`, JSON-schema constrained) turns the OCR text into strict `PrescribedDrug` / `PhysicalStrip` records. The OCR text is passed as untrusted data.
-3. **Verdict:** a deterministic Python rule engine (`safety_engine.py`, 41 Indian brands mapped to salts, 15 interaction rules) decides everything. It raises:
+3. **Verdict:** a deterministic Python rule engine (`safety_engine.py`, 106 Indian brands mapped to salts, 20 interaction rules) decides everything. It raises:
    `DUPLICATE_SALT`, `DOSAGE_MISMATCH`, `DRUG_INTERACTION` (including two drugs of the same class, such as two ARBs), `EXPIRED_BATCH`, plus `SALT_MISMATCH`, `NOT_PRESCRIBED`, `MISSING_STRIP`, `STRENGTH_UNVERIFIED`, `EXPIRY_MISSING` / `EXPIRY_UNREADABLE`, `UNRECOGNISED` and `SCHEDULE_UNCLEAR`.
 
 The principle is **when unsure, never guess and never say "all clear"**:
 
-- `Telma 80` or `Pan 20` (strengths that do not exist) become "cannot identify", not a different dose.
+- A name with a strength that is not in the database (for example `Telma 60`) becomes "cannot identify", not a different dose.
 - A strip counts as a match only with exactly the prescribed ingredients (`Pan 40` vs `Pan-D` is flagged).
 - Expiry parsing ignores MFG and batch dates and prefers the `EXP` date.
 - A **grounding check** compares the model's output with the OCR text: a known medicine seen in the text but not extracted (an LLM omission or a prompt injection printed on a strip), or an extracted name that is not in the text, becomes an amber warning.
@@ -169,7 +169,7 @@ We tested tilted, blurred, noisy, low-contrast, glared, heavily JPEG-compressed 
 uv sync                           # creates .venv from pyproject.toml + uv.lock (exact versions)
 ollama pull gemma4:e2b            # offline mode only
 uv run uvicorn app:app --host 127.0.0.1 --port 8000
-uv run pytest                     # 77 tests: rule engine, extraction path, API
+uv run pytest                     # 124 tests: rule engine, database checks, scenario table, extraction path, API
 ```
 
 Works the same on Windows, macOS and Linux. Without `uv`: `python -m venv .venv`, activate it, `pip install -r requirements.txt` (exported from the lock file), then `python -m uvicorn app:app --host 127.0.0.1 --port 8000`.
@@ -187,7 +187,7 @@ Full 3-minute script and judge Q&A: [docs/DEMO.md](docs/DEMO.md). Short version:
 ### Limitations
 
 - Printed text works well; messy handwriting is not supported and degrades to amber warnings.
-- The database has 41 brands and 15 interaction rules. It is a demo knowledge base, not a complete formulary.
+- The database has 106 brands and 20 interaction rules, entered from memory. It is a demo knowledge base, not a complete formulary, and should be checked against product labels before anyone relies on it.
 - The Hindi text has not been reviewed by a native speaker.
 - The demo images in `fixtures/` are synthetic; we have tested degraded copies of them, not a large set of real phone photos.
 - `fixtures/real/` holds six real strip photos downloaded from the internet (see its [ATTRIBUTION.md](fixtures/real/ATTRIBUTION.md): sources were not recorded and some carry retailer watermarks). Read one at a time, Dolo, Crocin, Brufen, Combiflam and Telma are recognised; the Pantocid photo also produces junk entries. Photograph or upload **one strip per image**: a collage of several strips reads poorly, and identical strips with the same batch in one photo count as one.

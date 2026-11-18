@@ -128,6 +128,24 @@ pre{white-space:pre-wrap;font-size:15px}
 #warm{background:var(--pri-soft);color:var(--pri-d);border-radius:12px;padding:10px 16px;margin:0 0 18px;font-weight:500}
 .disc{font-size:15px;color:var(--mute);margin:40px 0 0;padding:18px 0 34px;border-top:1px solid var(--line)}
 
+/* grouped warnings, checklist, language toggle */
+h2.grp{display:flex;align-items:center;gap:10px;margin:30px 0 4px;font-size:21px;letter-spacing:-.02em}
+h2.grp.RED{color:var(--red)} h2.grp.AMBER{color:var(--amb)}
+.cnt{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 8px;border-radius:999px;background:var(--line);color:var(--ink2);font-size:15px;font-weight:700}
+h2.grp.RED .cnt{background:var(--red-soft);color:var(--red)} h2.grp.AMBER .cnt{background:var(--amb-soft);color:var(--amb)}
+details.okgrp{margin:30px 0 4px;background:transparent;border:0;box-shadow:none;padding:0}
+details.okgrp summary{font-size:21px;font-weight:700;letter-spacing:-.02em;color:var(--grn);display:flex;align-items:center;gap:10px;cursor:pointer}
+details.okgrp .cnt{background:var(--grn-soft);color:var(--grn)}
+.todo{margin:22px 0 4px;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--pri);border-radius:16px;padding:16px 20px;box-shadow:var(--sh2)}
+.todo h2{margin:0 0 6px;font-size:21px;letter-spacing:-.02em}
+.todo ol{margin:0;padding-left:24px} .todo li{margin:6px 0;color:var(--ink2)} .todo li b{color:var(--ink)}
+.langbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:22px 0 0;color:var(--mute);font-size:16px}
+.langbar button{min-height:40px;padding:6px 16px;font-size:16px;border-radius:999px}
+.langbar button[aria-pressed="true"]{background:var(--pri);color:#fff;border-color:var(--pri)}
+#out[data-lang="en"] .hi{display:none}
+#out[data-lang="hi"] .card p.en{display:none}
+#out[data-lang="hi"] .card .hi{margin-top:0;padding-top:0;border-top:0;color:var(--ink2)}
+
 /* loading */
 .loading{display:grid;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--sh2)}
 .loading .top{display:flex;gap:14px;align-items:center}
@@ -297,12 +315,47 @@ async function run(body,instant){
   }finally{clearTimeout(timer); if(my===seq) setBusy(false);}
 }
 
+/* one plain instruction per finding, for the "What to do now" list */
+const uniq=a=>[...new Set(a)];
+const names=f=>uniq(f.drugs||[]).map(esc);
+const NEXT={
+  DUPLICATE_SALT:f=>`Take only <b>one</b> of ${names(f).join(' and ')}: they contain the same medicine.`,
+  DUPLICATE_PRESCRIPTION:f=>`Ask the doctor why ${names(f).join(' and ')} are both prescribed.`,
+  DOSAGE_MISMATCH:f=>`Do not take <b>${names(f).slice(-1)[0]}</b> until a pharmacist confirms the strength.`,
+  DRUG_INTERACTION:f=>`Ask a doctor or pharmacist before taking ${names(f).join(' with ')} together.`,
+  EXPIRED_BATCH:f=>`Do <b>not</b> take <b>${names(f)[0]}</b>: it has expired. Throw it away safely.`,
+  NOT_PRESCRIBED:f=>`Do not take <b>${names(f)[0]}</b> unless your doctor says so.`,
+  MISSING_STRIP:f=>`Find the strip for <b>${names(f)[0]}</b>, or ask the pharmacy.`,
+  SALT_MISMATCH:f=>`Ask the pharmacist: ${names(f).slice(-1)[0]} is not the same medicine as ${names(f)[0]}.`,
+  UNRECOGNISED:f=>`Show <b>${names(f)[0]}</b> to a pharmacist: it could not be identified.`,
+  EXPIRY_MISSING:f=>`Check the expiry date printed on <b>${names(f)[0]}</b>.`,
+  EXPIRY_UNREADABLE:f=>`Check the expiry date printed on <b>${names(f)[0]}</b>.`,
+  STRENGTH_UNVERIFIED:f=>`Check the strength printed on <b>${names(f)[0]}</b>.`,
+  SCHEDULE_UNCLEAR:f=>`Ask the doctor when to take <b>${names(f)[0]}</b>.`,
+  UNEXTRACTED_MEDICINE:f=>`Check the photo by eye: <b>${names(f)[0]}</b> appears but was not read.`,
+  UNGROUNDED_ENTRY:f=>`Check by eye: <b>${names(f)[0]}</b> may have been misread.`,
+  OCR_TRUNCATED:()=>'Check the rest of the text by eye.',
+  NO_INPUT:()=>'Retake clearer photos and try again, or check by hand.',
+  NO_STRIPS:()=>'Add a clear photo of the medicine strips.',
+  NO_PRESCRIPTION:()=>'Add a clear photo of the prescription.',
+  NOTHING_VERIFIED:()=>'Check the medicines by hand with a pharmacist.'
+};
+const nextStep=f=>(NEXT[f.code]?NEXT[f.code](f):esc(f.title));
 const TITLE={RED:'Do NOT take these medicines until checked',AMBER:'Check with a pharmacist or doctor',GREEN:'All clear — medicines match the prescription'};
 const WORD={RED:'DANGER',AMBER:'CAUTION',GREEN:'OK'};
 const COUNTWORD={RED:'danger',AMBER:'caution',GREEN:'ok'};
 const MODE={scenario:'Demo scenario (preset data)',offline:'Images read on this device (offline)',gemini:'Images were sent to Google Gemini for reading'};
 function render({report,extracted,mode}){
-  const cards=report.findings.map(f=>`<div class="card ${f.severity}"><div class="ico">${ICON[f.severity]}</div><div><span class="tag ${f.severity}">${WORD[f.severity]} — ${esc(f.code.replace(/_/g,' '))}</span><b>${esc(f.title)}</b><p>${esc(f.message_en)}</p><div class="hi" lang="hi">${esc(f.message_hi)}</div></div></div>`).join('');
+  const card=f=>`<div class="card ${f.severity}"><div class="ico">${ICON[f.severity]}</div><div><span class="tag ${f.severity}">${WORD[f.severity]} — ${esc(f.code.replace(/_/g,' '))}</span><b>${esc(f.title)}</b><p class="en">${esc(f.message_en)}</p><div class="hi" lang="hi">${esc(f.message_hi)}</div></div></div>`;
+  const by={RED:[],AMBER:[],GREEN:[]}; report.findings.forEach(f=>by[f.severity].push(f));
+  const allGreen=!by.RED.length&&!by.AMBER.length;
+  const group=(k,title,open)=>!by[k].length?'':(k==='GREEN'
+    ?`<details class="okgrp" ${open?'open':''}><summary><span class="gh GREEN">${title}</span> <span class="cnt">${by[k].length}</span></summary>${by[k].map(card).join('')}</details>`
+    :`<h2 class="grp ${k}">${title} <span class="cnt">${by[k].length}</span></h2>${by[k].map(card).join('')}`);
+  const groups=group('RED','Needs action now')+group('AMBER','Please check')+group('GREEN','Looks fine',allGreen);
+  const steps=[]; [...by.RED,...by.AMBER].forEach(f=>{const t=nextStep(f); if(!steps.includes(t)) steps.push(t);});
+  const todo=steps.length?`<section class="todo" aria-label="What to do now"><h2>What to do now</h2><ol>${steps.slice(0,6).map(s=>`<li>${s}</li>`).join('')}</ol>${steps.length>6?`<p class="note">${steps.length-6} more below.</p>`:''}</section>`:'';
+  const langbar=`<div class="langbar" role="group" aria-label="Language of the warnings"><span>Show warnings in</span><button type="button" class="sec" data-lang="both" aria-pressed="true">Both</button><button type="button" class="sec" data-lang="en" aria-pressed="false">English</button><button type="button" class="sec" data-lang="hi" lang="hi" aria-pressed="false">हिन्दी</button></div>`;
   const counts={RED:0,AMBER:0,GREEN:0}; report.findings.forEach(f=>counts[f.severity]++);
   const chips=['RED','AMBER','GREEN'].filter(k=>counts[k]).map(k=>`<span class="chip ${k}">${counts[k]} ${COUNTWORD[k]}</span>`).join('');
   const slots=[['morning','Morning'],['afternoon','Afternoon'],['night','Night']].map(([k,l])=>
@@ -313,11 +366,16 @@ function render({report,extracted,mode}){
    <p class="note">${esc(MODE[mode]||mode)}</p>${extracted.fallback_reason?`<p class="note" role="status">${esc(extracted.fallback_reason)}</p>`:''}
    <div class="row" style="margin-top:6px"><button id="en">${SPEAKER}Read aloud (English)</button><button id="hi" class="sec" lang="hi">${SPEAKER}हिन्दी में सुनें</button><button id="stop" class="sec">Stop</button></div>
    <p class="note" id="vnote"></p>
-   ${cards}<h2 class="sec-h">Daily schedule (from prescription)</h2><div class="sched">${slots}</div>
+   ${todo}${langbar}${groups}<h2 class="sec-h">Daily schedule (from prescription)</h2><div class="sched">${slots}</div>
    <details><summary>What was read from the images</summary>
      <h3>Prescription</h3>${rows(extracted.prescribed,[['Name','name'],['Strength (mg)','strength_mg'],['Frequency','frequency'],['Days','duration_days']])}
      <h3>Strips</h3>${rows(extracted.strips,[['Name','name'],['Strength (mg)','strength_mg'],['Expiry','expiry'],['Batch','batch']])}
      ${extracted.raw_text_strips?`<h3>Raw OCR text</h3><pre>${esc(extracted.raw_text_rx)}\n---\n${esc(extracted.raw_text_strips)}</pre>`:''}</details>`;
+  document.querySelectorAll('.langbar [data-lang]').forEach(b=>b.onclick=()=>{
+    $('#out').dataset.lang=b.dataset.lang;
+    document.querySelectorAll('.langbar [data-lang]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  });
+  $('#out').dataset.lang='both';
   $('#en').onclick=()=>speak(report.summary_en,'en-IN'); $('#hi').onclick=()=>speak(report.summary_hi,'hi-IN');
   $('#stop').onclick=()=>speechSynthesis.cancel();
   updateVoiceUI(); $('#banner').focus();
