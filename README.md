@@ -189,6 +189,7 @@ Full 3-minute script and judge Q&A: [docs/DEMO.md](docs/DEMO.md). Short version:
 - Printed text works well; messy handwriting is not supported and degrades to amber warnings.
 - The database has 41 brands and 15 interaction rules. It is a demo knowledge base, not a complete formulary.
 - The Hindi text has not been reviewed by a native speaker.
-- Demo images are synthetic; we have tested degraded copies of them, not a large set of real phone photos.
+- The demo images in `fixtures/` are synthetic; we have tested degraded copies of them, not a large set of real phone photos.
+- `fixtures/real/` holds six real strip photos downloaded from the internet (see its [ATTRIBUTION.md](fixtures/real/ATTRIBUTION.md): sources were not recorded and some carry retailer watermarks). Read one at a time, Dolo, Crocin, Brufen, Combiflam and Telma are recognised; the Pantocid photo also produces junk entries. Photograph or upload **one strip per image**: a collage of several strips reads poorly, and identical strips with the same batch in one photo count as one.
 
 _MediGuard is a safety aid, not medical advice. Always confirm with your doctor or pharmacist._
