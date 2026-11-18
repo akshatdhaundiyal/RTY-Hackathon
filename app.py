@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +20,18 @@ log = logging.getLogger("mediguard")
 logging.basicConfig(level=logging.INFO)
 ROOT = Path(__file__).parent
 FIXTURES = ROOT / "fixtures"
-app = FastAPI(title="MediGuard")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Warm the OCR engine and the local model in the background (set MEDIGUARD_WARMUP=0 to skip)."""
+    if os.getenv("MEDIGUARD_WARMUP", "1") != "0":
+        from vision_extractor import warm_up
+        threading.Thread(target=warm_up, daemon=True, name="warm-up").start()
+    yield
+
+
+app = FastAPI(title="MediGuard", lifespan=lifespan)
 
 
 def scenarios() -> dict:
@@ -27,6 +41,13 @@ def scenarios() -> dict:
 class VerifyRequest(BaseModel):
     prescribed: list[PrescribedDrug]
     strips: list[PhysicalStrip]
+
+
+@app.get("/api/status")
+def status():
+    """State of the on-device reader warm-up: idle | warming | ready | unavailable."""
+    from vision_extractor import WARM
+    return {**WARM, "gemini_configured": bool(os.getenv("GEMINI_API_KEY"))}
 
 
 @app.get("/api/scenarios")

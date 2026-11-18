@@ -247,6 +247,32 @@ def extract_gemini(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
     return ExtractionResult(mode="gemini", prescribed=rx.drugs, strips=st.strips)
 
 
+# ---------- warm-up ----------
+WARM: dict = {"state": "idle", "detail": "", "seconds": None}  # idle | warming | ready | unavailable
+
+
+def warm_up() -> None:
+    """Load RapidOCR and the Ollama model in the background so the first real check is fast.
+    Never raises: a failed warm-up only means the first check is slower or the model is unavailable."""
+    import time
+
+    t0 = time.time()
+    WARM.update(state="warming", detail="", seconds=None)
+    try:
+        blank = io.BytesIO()
+        Image.new("RGB", (64, 64), "white").save(blank, "PNG")
+        ocr_text(blank.getvalue())
+        _ollama_extract("Reply with JSON only. No medicines are present.", "warm-up", RxExtraction)
+        WARM.update(state="ready", seconds=round(time.time() - t0, 1))
+        log.info("warm-up finished in %.1fs", time.time() - t0)
+    except ExtractionError as e:
+        log.warning("warm-up: reading model unavailable: %s", e.public)
+        WARM.update(state="unavailable", detail=e.public, seconds=round(time.time() - t0, 1))
+    except Exception as e:
+        log.warning("warm-up failed: %r", e)
+        WARM.update(state="unavailable", detail="The on-device reader could not be prepared.", seconds=round(time.time() - t0, 1))
+
+
 # ---------- entry point ----------
 _gate = threading.Semaphore(1)  # one extraction at a time: OCR + a 6 GB GPU cannot share well
 

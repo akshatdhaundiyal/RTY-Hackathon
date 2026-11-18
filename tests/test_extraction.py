@@ -69,6 +69,37 @@ def test_long_ocr_text_is_clipped_with_a_warning():
     assert len(out) == vx.MAX_OCR_CHARS and findings[0].code == "OCR_TRUNCATED"
 
 
+def test_warm_up_reports_ready_unavailable_and_never_raises(monkeypatch):
+    monkeypatch.setattr(vx, "ocr_text", lambda b: "")
+    monkeypatch.setattr(vx, "_ollama_extract", lambda *a, **k: None)
+    vx.warm_up()
+    assert vx.WARM["state"] == "ready" and vx.WARM["seconds"] is not None
+
+    def down(*a, **k):
+        raise vx.ExtractionError("Ollama is not running.")
+    monkeypatch.setattr(vx, "_ollama_extract", down)
+    vx.warm_up()
+    assert vx.WARM["state"] == "unavailable" and "Ollama" in vx.WARM["detail"]
+
+    monkeypatch.setattr(vx, "ocr_text", lambda b: (_ for _ in ()).throw(RuntimeError("boom")))
+    vx.warm_up()  # must not raise
+    assert vx.WARM["state"] == "unavailable" and "boom" not in vx.WARM["detail"]
+
+
+def test_status_endpoint_and_startup_hook(monkeypatch):
+    from fastapi.testclient import TestClient
+    import app as appmod
+
+    started = []
+    monkeypatch.setattr(vx, "warm_up", lambda: started.append(1))
+    monkeypatch.setenv("MEDIGUARD_WARMUP", "1")
+    with TestClient(appmod.app) as c:  # entering the context runs the startup hook
+        s = c.get("/api/status").json()
+    assert set(s) >= {"state", "detail", "gemini_configured"}
+    import time; time.sleep(0.2)
+    assert started == [1]
+
+
 def test_api_error_mapping_and_fixture_whitelist():
     from fastapi.testclient import TestClient
     import app as appmod

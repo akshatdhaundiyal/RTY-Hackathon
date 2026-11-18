@@ -48,6 +48,8 @@ details{margin:10px 0;color:var(--mute)} pre{white-space:pre-wrap;font-size:16px
   <h1>💊 MediGuard</h1>
   <p class="sub">Check that your medicines match the doctor's prescription. Images are read on this device unless an online key is configured.</p>
 
+  <p class="note" id="warm" role="status" hidden></p>
+
   <div id="controls">
     <div class="row" id="scn"></div>
     <div class="row" style="margin-top:14px">
@@ -129,6 +131,21 @@ fetch('/api/scenarios').then(r=>r.json()).then(list=>{
   $('#scn').innerHTML=list.map(s=>`<button class="sec" data-s="${esc(s.id)}">${esc(s.title)}</button>`).join('');
   document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>pickScenario(list.find(x=>x.id===b.dataset.s)));
 }).catch(()=>{$('#scn').innerHTML='<div class="err">Demo scenarios could not be loaded. You can still upload images.</div>'});
+
+/* on-device reader warm-up status: the first real check is slower until it is ready */
+async function pollStatus(){
+  const el=$('#warm');
+  try{
+    const s=await (await fetch('/api/status')).json();
+    if(s.state==='idle'||s.state==='warming'){
+      el.hidden=false; el.textContent='Getting the on-device reader ready… your first check may take a little longer. Demo scenarios work right away.';
+      setTimeout(pollStatus,3000);
+    }else if(s.state==='unavailable'){
+      el.hidden=false; el.textContent=(s.detail||'The on-device reader is not available.')+' Demo scenarios still work.';
+    }else{el.hidden=true;}
+  }catch(e){}
+}
+pollStatus();
 
 $('#go').onclick=()=>{
   if(busy) return;
