@@ -224,6 +224,12 @@ def test_display_names_keep_acronym_suffixes():
     assert "Dsr" not in titles and "Ecosprin Av" not in titles
 
 
+def test_pharmacopoeia_marks_on_real_strips_are_ignored():
+    for text in ("Ibuprofen Tablets I.P.", "Ibuprofen I.P.", "Ibuprofen IP", "Ibuprofen Tablets IP 400 mg"):
+        assert resolve(text).salts == ["ibuprofen"], text
+    assert resolve("Telmisartan Tablets I.P. 40 mg").salts == ["telmisartan"]
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]

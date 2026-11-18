@@ -235,13 +235,42 @@ def merge_repeats(items: list) -> list:
     return out
 
 
+def merge_composition_lines(items: list) -> list:
+    """Drop a generic-name entry that is just the composition line of a branded strip in the same photo.
+
+    A strip prints "BRUFEN 400" and also "Ibuprofen Tablets I.P. 400 mg"; the model lists both, which would
+    otherwise raise a false DUPLICATE_SALT. A generic entry is dropped only when its salts are all contained in
+    a branded entry's salts and its strength (if any) is a strength that brand actually has. A generic entry with
+    a different strength (for example Paracetamol 500 next to Dolo 650) is kept, so a real double dose is still caught.
+    Limitation: a separate generic pack of the same salt and strength photographed with the branded one is merged."""
+    from safety_engine import _INFO, resolve as _resolve
+
+    res = [_resolve(i.name, getattr(i, "strength_mg", None)) for i in items]
+    drop: set[int] = set()
+    for gi, g in enumerate(res):
+        if g.brand is not None or not g.salts:
+            continue
+        for bi, b in enumerate(res):
+            if bi == gi or b.brand is None or not set(g.salts) <= set(b.salts):
+                continue
+            allowed = _INFO[b.brand][2]
+            if g.strength_mg is None or any(abs(g.strength_mg - a) < 1e-9 for a in allowed):
+                keep, gone = items[bi], items[gi]
+                for f in ("expiry", "batch"):
+                    if hasattr(keep, f) and getattr(keep, f) in (None, "") and getattr(gone, f, None):
+                        setattr(keep, f, getattr(gone, f))
+                drop.add(gi)
+                break
+    return [it for i, it in enumerate(items) if i not in drop]
+
+
 def extract_offline(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
     findings: list[Finding] = []
     rx_text = _clip(ocr_text(rx_img), "prescription", findings)
     st_text = _clip(ocr_text(strips_img), "medicine strips", findings)
     rx = _ollama_extract(RX_PROMPT, rx_text, RxExtraction)
     st = _ollama_extract(STRIP_PROMPT, st_text, StripExtraction)
-    rx.drugs, st.strips = merge_repeats(rx.drugs), merge_repeats(st.strips)
+    rx.drugs, st.strips = merge_repeats(rx.drugs), merge_composition_lines(merge_repeats(st.strips))
     # Deterministic cross-check: the LLM may omit drugs (or be prompt-injected). Anything the OCR text
     # shows that was not extracted, or extracted but absent from the text, becomes an AMBER finding.
     findings += grounding_findings(rx_text, [resolve(d.name, d.strength_mg) for d in rx.drugs], "prescription")

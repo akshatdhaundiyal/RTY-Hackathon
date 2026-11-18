@@ -97,7 +97,7 @@ def _amber(code: str, title: str, en: str, hi: str, drugs: Optional[list[str]] =
 
 # ---------- name resolution (strict: never map to a different product or strength) ----------
 _UNIT = re.compile(r"(\d)\s*(?:mg|mcg|µg|ug|g|ml)\b", re.I)  # "5mg" -> "5 "
-_NOISE = re.compile(r"\b(tab|tabs|tablet|tablets|cap|caps|capsule|capsules|ip|mg)\b\.?", re.I)
+_NOISE = re.compile(r"\bi\.\s?p\b\.?|\b(tab|tabs|tablet|tablets|cap|caps|capsule|capsules|ip|mg)\b\.?", re.I)  # "I.P." = pharmacopoeia mark
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 
 

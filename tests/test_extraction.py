@@ -51,6 +51,36 @@ def test_repeated_strip_listings_merge_without_losing_distinct_strips():
     assert len(rx) == 1
 
 
+def test_composition_line_is_not_a_second_strip():
+    from safety_engine import analyze
+    S = PhysicalStrip
+    # the real Brufen photo: brand line + "Ibuprofen Tablets I.P. 400 mg" composition line
+    out = vx.merge_composition_lines([S(name="BRUFEN", strength_mg=400), S(name="IbuprofenIp", strength_mg=400),
+                                      S(name="Ibuprofen Tablets I.P.")])
+    assert [s.name for s in out] == ["BRUFEN"]
+    r = analyze([], vx.merge_composition_lines([S(name="BRUFEN", strength_mg=400, expiry="12/2027"),
+                                                S(name="IbuprofenIp", strength_mg=400)]), None)
+    assert "DUPLICATE_SALT" not in {f.code for f in r.findings}
+    # fills a missing expiry from the dropped line
+    out = vx.merge_composition_lines([S(name="Brufen", strength_mg=400), S(name="Ibuprofen", expiry="12/2027")])
+    assert len(out) == 1 and out[0].expiry == "12/2027"
+    # a combo's fragment merges too
+    assert len(vx.merge_composition_lines([S(name="Combiflam"), S(name="Paracetamol", strength_mg=325)])) == 1
+
+
+def test_composition_merge_keeps_real_duplicates_and_distinct_strips():
+    from safety_engine import analyze
+    S = PhysicalStrip
+    # a different strength is a different product: Paracetamol 500 next to Dolo 650 stays, so the double dose is caught
+    out = vx.merge_composition_lines([S(name="Dolo", strength_mg=650), S(name="Paracetamol", strength_mg=500)])
+    assert len(out) == 2
+    assert "DUPLICATE_SALT" in {f.code for f in analyze([], out, None).findings}
+    # two branded strips are never merged, and a generic with unrelated salts is kept
+    assert len(vx.merge_composition_lines([S(name="Dolo", strength_mg=650), S(name="Crocin", strength_mg=650)])) == 2
+    assert len(vx.merge_composition_lines([S(name="Brufen", strength_mg=400), S(name="Paracetamol")])) == 2
+    assert len(vx.merge_composition_lines([S(name="Ibuprofen"), S(name="Paracetamol")])) == 2  # no brand at all
+
+
 def test_llm_number_coercion():
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5 days").strength_mg == 650
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5.5").duration_days == 5
