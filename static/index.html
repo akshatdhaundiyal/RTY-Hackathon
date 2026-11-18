@@ -165,7 +165,7 @@ function render({report,extracted,mode}){
     `<div class="slot"><h3>${l}</h3>${(report.schedule[k]||[]).map(n=>`<span class="pill">${esc(n)}</span>`).join('')||'<small>—</small>'}</div>`).join('');
   const rows=(a,cols)=>`<table><tr>${cols.map(([l])=>`<th scope="col">${l}</th>`).join('')}</tr>${a.map(x=>`<tr>${cols.map(([,k])=>`<td>${esc(x[k]??'')}</td>`).join('')}</tr>`).join('')}</table>`;
   $('#out').innerHTML=`<div class="banner ${report.status}" tabindex="-1" id="banner">${TITLE[report.status]}</div>
-   <p class="note">${esc(MODE[mode]||mode)}</p>
+   <p class="note">${esc(MODE[mode]||mode)}</p>${extracted.fallback_reason?`<p class="note" role="status">${esc(extracted.fallback_reason)}</p>`:''}
    <div class="row"><button id="en">🔊 Read aloud (English)</button><button id="hi" class="sec" lang="hi">🔊 हिन्दी में सुनें</button><button id="stop" class="sec">Stop</button></div>
    <p class="note" id="vnote"></p>
    ${cards}<h2>Daily schedule (from prescription)</h2><div class="sched">${slots}</div>

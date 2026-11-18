@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 DB_PATH = Path(__file__).parent / "drugs_db.json"
 DB = json.loads(DB_PATH.read_text(encoding="utf-8"))
@@ -25,11 +25,32 @@ KNOWN_SALTS = {s for b in BRANDS.values() for s, _ in b["salts"]}
 
 
 # ---------- schemas ----------
+def _num(v):
+    """Tolerate LLM output like "500mg", "5 days", 0 or "": a number, or None when unknown."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v) or None
+    m = re.search(r"\d+(?:\.\d+)?", str(v))
+    return (float(m.group()) or None) if m else None
+
+
 class PrescribedDrug(BaseModel):
     name: str
     strength_mg: Optional[float] = None
     frequency: Optional[str] = None  # "1-0-1", "BD", "at night"...
     duration_days: Optional[int] = None
+
+    @field_validator("strength_mg", mode="before")
+    @classmethod
+    def _strength(cls, v):
+        return _num(v)
+
+    @field_validator("duration_days", mode="before")
+    @classmethod
+    def _days(cls, v):
+        n = _num(v)
+        return int(n) if n else None
 
 
 class PhysicalStrip(BaseModel):
@@ -37,6 +58,11 @@ class PhysicalStrip(BaseModel):
     strength_mg: Optional[float] = None
     expiry: Optional[str] = None  # "03/2027" or "Mar-27"
     batch: Optional[str] = None
+
+    @field_validator("strength_mg", mode="before")
+    @classmethod
+    def _strength(cls, v):
+        return _num(v)
 
 
 class Finding(BaseModel):

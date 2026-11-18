@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,8 @@ from pydantic import BaseModel
 
 from safety_engine import PhysicalStrip, PrescribedDrug, analyze
 
+log = logging.getLogger("mediguard")
+logging.basicConfig(level=logging.INFO)
 ROOT = Path(__file__).parent
 FIXTURES = ROOT / "fixtures"
 app = FastAPI(title="MediGuard")
@@ -46,12 +49,19 @@ def analyze_images(scenario: Optional[str] = Form(None), rx: Optional[UploadFile
                 "report": analyze(rx_list, st_list)}
     if not rx or not strips:
         raise HTTPException(400, "Provide both a prescription image and a medicine strips image.")
-    from vision_extractor import extract  # lazy: keeps startup fast / OCR model loads on first use
+    from vision_extractor import MAX_IMAGE_BYTES, BusyError, ExtractionError, ImageError, extract  # lazy import
+    rx_bytes, st_bytes = rx.file.read(MAX_IMAGE_BYTES + 1), strips.file.read(MAX_IMAGE_BYTES + 1)
     try:
-        res = extract(rx.file.read(), strips.file.read())
-    except Exception as e:  # never guess on failure
-        raise HTTPException(503, f"Could not read the images ({type(e).__name__}: {e}). "
-                                 "Is Ollama running? Try a demo scenario instead.")
+        res = extract(rx_bytes, st_bytes)
+    except ImageError as e:  # bad upload: the user can fix it
+        raise HTTPException(e.status, e.public)
+    except BusyError as e:
+        raise HTTPException(429, e.public)
+    except ExtractionError as e:  # backend down / bad model output: safe message only
+        raise HTTPException(503, e.public)
+    except Exception:  # never guess on failure, never leak internals
+        log.exception("unexpected error while reading images")
+        raise HTTPException(500, "Something went wrong while reading the images. Please try again or use a demo scenario.")
     return {"mode": res.mode, "extracted": res.model_dump(),
             "report": analyze(res.prescribed, res.strips, extra_findings=res.findings)}
 
@@ -66,5 +76,13 @@ def index():
     return FileResponse(ROOT / "static" / "index.html")
 
 
-app.mount("/fixtures", StaticFiles(directory=FIXTURES), name="fixtures")
+@app.get("/fixtures/{name}")
+def fixture_image(name: str):
+    """Serve only the demo PNGs, not the generator script or scenario data."""
+    path = FIXTURES / name
+    if "/" in name or "\\" in name or path.suffix != ".png" or not path.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(path)
+
+
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
