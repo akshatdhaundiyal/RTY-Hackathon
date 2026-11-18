@@ -96,6 +96,29 @@ def test_misread_strength_next_to_a_valid_reading_is_merged_but_never_autocorrec
     assert len(vx.merge_misread_strengths([S(name="Dolo", strength_mg=650), S(name="Dolo", strength_mg=500)])) == 2
 
 
+def test_sideways_pass_keeps_only_confident_date_lines(monkeypatch):
+    seen_sizes = []
+
+    class FakeOCR:
+        def __call__(self, arr):
+            seen_sizes.append(arr.shape[:2])
+            return ([[[[0, 0], [1, 0], [1, 1], [0, 1]], "EXP. NOV. 2027", "0.93"],     # confident date: kept
+                     [[[0, 0], [1, 0], [1, 1], [0, 1]], "Mfg Dec 2025", 0.9],          # confident date: kept
+                     [[[0, 0], [1, 0], [1, 1], [0, 1]], "sdfkj qwe", 0.95],            # gibberish: dropped
+                     [[[0, 0], [1, 0], [1, 1], [0, 1]], "EXP 01/2030", 0.3]], None)    # low confidence: dropped
+
+    monkeypatch.setattr(vx, "_ocr_engine", lambda: FakeOCR())
+    monkeypatch.setenv("MEDIGUARD_ROTATIONS", "1")
+    img = Image.new("RGB", (200, 100), "white")
+    extras = vx._sideways_extras(img, "already read text")
+    assert extras == ["EXP. NOV. 2027", "Mfg Dec 2025"]  # de-duplicated across both rotations
+    assert (200, 100) in seen_sizes  # rotated 90/270 images have swapped dimensions
+    # dates the normal read already contains are not added again (duplicates confused the model on clean images)
+    assert vx._sideways_extras(img, "B.No: DL4410 EXP. NOV. 2027  other") == ["Mfg Dec 2025"]
+    monkeypatch.setenv("MEDIGUARD_ROTATIONS", "0")
+    assert vx._sideways_extras(img, "") == []  # can be switched off
+
+
 def test_llm_number_coercion():
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5 days").strength_mg == 650
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5.5").duration_days == 5

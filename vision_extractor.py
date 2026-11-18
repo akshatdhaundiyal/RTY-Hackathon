@@ -91,6 +91,7 @@ STRIP_PROMPT = (
     '{"strips":[{"name","strength_mg","expiry","batch"}]}. '
     "name = brand name as printed WITHOUT the strength. strength_mg = number in mg or null. "
     "expiry = exactly as printed (e.g. 03/2027 or Mar-27) or null. Use null when unsure. "
+    "A line starting with 'SIDEWAYS TEXT:' holds dates printed sideways on the strip: use it for expiry (EXP) and batch, not for names. "
     "List each physical strip ONCE: the same brand name is printed many times on a single strip, "
     "so repeated names are the same strip. Ignore text that is not a medicine name (addresses, warnings, slogans). "
     "Do NOT invent strips. Output JSON only. "
@@ -141,9 +142,43 @@ def _ocr_engine():
     return _ocr
 
 
+_DATE_HINT = re.compile(
+    r"\b(exp|mfg|mfd)\w*|\b\d{1,2}\s*[/\-.]\s*(\d{4}|\d{2})\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\-/.]*\d{2,4}\b",
+    re.I)
+
+
+def _sideways_extras(img: Image.Image, already: str) -> list[str]:
+    """Expiry and batch dates are often printed sideways along a strip's edge, which a normal read skips.
+    Read the photo rotated 90 and 270 degrees, but keep ONLY confident lines that look like dates or EXP/MFG text:
+    everything else the rotated passes read is gibberish and is discarded so it cannot add junk."""
+    if os.getenv("MEDIGUARD_ROTATIONS", "1") == "0":
+        return []
+    squash = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
+    have = squash(already)
+    found: list[str] = []
+    for angle in (90, 270):
+        result, _ = _ocr_engine()(np.array(img.rotate(angle, expand=True)))
+        for _box, text, score in result or []:
+            try:
+                confident = float(score) >= 0.8
+            except (TypeError, ValueError):
+                confident = False
+            t = text.strip()
+            # only NEW date information: a line with digits that the normal read did not already contain
+            if confident and re.search(r"\d", t) and _DATE_HINT.search(t) and squash(t) not in have and t not in found:
+                found.append(t)
+    return found
+
+
 def ocr_text(image_bytes: bytes) -> str:
-    """Local OCR, grouped into reading-order lines."""
+    """Local OCR, grouped into reading-order lines, plus any dates found by reading the photo sideways."""
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    text = _ocr_main(img)
+    extras = _sideways_extras(img, text)
+    return text + ("\nSIDEWAYS TEXT: " + "  ".join(extras) if extras else "")
+
+
+def _ocr_main(img: Image.Image) -> str:
     result, _ = _ocr_engine()(np.array(img))
     if not result:
         return ""
