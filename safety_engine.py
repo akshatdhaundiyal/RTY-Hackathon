@@ -71,7 +71,11 @@ _NOISE = re.compile(r"\b(tab|tabs|tablet|tablets|cap|capsule|ip|mg)\b\.?", re.I)
 def _norm(name: str) -> str:
     s = _NOISE.sub(" ", name.lower())
     s = re.sub(r"[^a-z0-9\- ]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    return re.sub(r"^(tablet|tab|cap)(?=[a-z])", "", s).strip()  # "TabDolo" -> "dolo"
+
+
+_COMPACT = {k.replace(" ", ""): k for k in BRANDS}
 
 
 def canon_salt(s: str) -> str:
@@ -89,6 +93,9 @@ def resolve(name: str, strength_mg: Optional[float] = None) -> Resolved:
     for c in cands:
         if c in BRANDS:
             key = c
+            break
+        if c.replace(" ", "") in _COMPACT:  # OCR dropped spaces: "pantociddsr"
+            key = _COMPACT[c.replace(" ", "")]
             break
     if key is None:  # same first word, pick brand whose strength matches
         first = n.split(" ")[0] if n else ""
@@ -151,7 +158,7 @@ def parse_frequency(freq: Optional[str]) -> list[str]:
     if not freq:
         return []
     f = freq.lower().strip()
-    m = re.fullmatch(r"([0-9])\s*-\s*([0-9])\s*-\s*([0-9])", f)
+    m = re.search(r"([0-9])\s*-\s*([0-9])\s*-\s*([0-9])", f)
     if m:
         return [s for s, v in zip(_SLOTS, m.groups()) if int(v) > 0]
     if re.search(r"\b(tds|tid|thrice|three times|1-1-1)\b", f) or "qid" in f:

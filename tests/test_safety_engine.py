@@ -62,6 +62,12 @@ def test_fuzzy_ocr_and_unknown():
     assert "UNRECOGNISED" in codes(r)
 
 
+def test_llm_ocr_glitches():
+    assert resolve("TabPantocidDSR").brand == "pantocid dsr"
+    assert resolve("Tab Dolo", 500).brand == "dolo 500"
+    assert parse_frequency("1-0-1x") == ["morning", "night"]
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]
