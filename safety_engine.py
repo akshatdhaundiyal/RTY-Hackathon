@@ -336,8 +336,12 @@ def _tokens(r: Resolved) -> set[str]:
     return t
 
 
+_ACRONYMS = {"Dsr": "DSR", "Av": "AV"}
+
+
 def _label(r: Resolved) -> str:
-    return (r.brand or r.input_name).title()
+    """Display name: title case, but keep brand suffixes that are acronyms (Pantocid DSR, Ecosprin AV 75)."""
+    return " ".join(_ACRONYMS.get(w, w) for w in (r.brand or r.input_name).title().split(" "))
 
 
 def _same_strength(a: float, b: float) -> bool:

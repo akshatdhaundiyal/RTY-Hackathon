@@ -217,6 +217,13 @@ def test_grounding_hindi_uses_hindi_side_names():
     assert "दवा की स्ट्रिप की फ़ोटो" in f.message_hi and "medicine strips" not in f.message_hi
 
 
+def test_display_names_keep_acronym_suffixes():
+    r = analyze([P(name="Pantocid DSR")], [S(name="Pantocid DSR", expiry="03/2028"), S(name="Ecosprin AV 75", expiry="03/2028")], TODAY)
+    titles = " | ".join(f.title for f in r.findings)
+    assert "Pantocid DSR matches prescription" in titles and "Ecosprin AV 75" in titles
+    assert "Dsr" not in titles and "Ecosprin Av" not in titles
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]
