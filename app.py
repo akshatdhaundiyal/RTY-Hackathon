@@ -53,7 +53,7 @@ def analyze_images(scenario: Optional[str] = Form(None), rx: Optional[UploadFile
         raise HTTPException(503, f"Could not read the images ({type(e).__name__}: {e}). "
                                  "Is Ollama running? Try a demo scenario instead.")
     return {"mode": res.mode, "extracted": res.model_dump(),
-            "report": analyze(res.prescribed, res.strips)}
+            "report": analyze(res.prescribed, res.strips, extra_findings=res.findings)}
 
 
 @app.post("/api/verify")
