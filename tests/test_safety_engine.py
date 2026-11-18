@@ -141,6 +141,65 @@ def test_trap_scenario_pairs_same_brand_and_keeps_all_findings():
         assert r.status == status and want <= codes(r), (key, codes(r))
 
 
+def _status_codes(strips, rx=()):
+    r = analyze([P(name=n) for n in rx], [S(name=n, expiry="03/2028") for n in strips], TODAY)
+    return r, codes(r)
+
+
+def test_same_class_duplicates_are_flagged():
+    for strips, severity in [(["Losar 50", "Telma 40"], "RED"),            # two ARBs
+                             (["Pan 40", "Omez 20"], "AMBER"),              # two PPIs
+                             (["Atorva 10", "Rosuvas 10"], "RED"),          # two statins
+                             (["Cetzine 10", "Allegra 120"], "AMBER"),      # two antihistamines
+                             (["Rosuvas 10", "Ecosprin AV 75"], "RED")]:    # statin hidden inside a combo
+        r, c = _status_codes(strips)
+        hit = [f for f in r.findings if f.code == "DRUG_INTERACTION" and f.severity == severity]
+        assert hit, (strips, c)
+
+
+def test_same_class_rule_does_not_fire_for_one_salt_or_different_classes():
+    r, c = _status_codes(["Atorva 10", "Ecosprin AV 75"])  # same salt: DUPLICATE_SALT only
+    assert "DUPLICATE_SALT" in c and "DRUG_INTERACTION" not in c
+    r, c = _status_codes(["Losar 50", "Pan 40"])
+    assert "DRUG_INTERACTION" not in c
+
+
+def test_schedule_parsing():
+    from safety_engine import parse_schedule
+    cases = {
+        "1-0-1": (["morning", "night"], True),
+        "1-0-0-1": (["morning", "night"], True),      # four-part: night dose not lost
+        "0-1-0-1": (["afternoon", "night"], True),
+        "1/2-0-1/2": (["morning", "night"], True),
+        "1-0-1 after food": (["morning", "night"], True),
+        "after food": ([], True),                     # only a food instruction: nothing wrong
+        "morning and night": (["morning", "night"], True),
+        "1 morning 1 night": (["morning", "night"], True),
+        "at bedtime": (["night"], True),
+        "BD": (["morning", "night"], True),
+        "TDS": (["morning", "afternoon", "night"], True),
+        "every 8 hours": (["morning", "afternoon", "night"], True),
+        "OD": (["morning"], True),
+        "once daily": (["morning"], True),
+        "once a week": ([], False),                   # NOT daily
+        "alternate days": ([], False),
+        "SOS": ([], False),
+        "QID": ([], False),
+        "0-0-0": ([], False),
+        "gibberish": ([], False),
+        "": ([], True),
+        None: ([], True),
+    }
+    for text, want in cases.items():
+        assert parse_schedule(text) == want, text
+
+
+def test_unclear_schedule_raises_amber_not_silence():
+    r = analyze([P(name="Dolo 650", frequency="once a week")], [S(name="Dolo 650", expiry="03/2028")], TODAY)
+    assert "SCHEDULE_UNCLEAR" in codes(r) and r.status == "AMBER"
+    assert r.schedule == {"morning": [], "afternoon": [], "night": []}
+
+
 def test_frequency():
     assert parse_frequency("1-0-1") == ["morning", "night"]
     assert parse_frequency("TDS") == ["morning", "afternoon", "night"]

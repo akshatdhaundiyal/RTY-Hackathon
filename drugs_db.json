@@ -57,7 +57,9 @@
     "warfarin": ["anticoagulant"],
     "telmisartan": ["arb"], "losartan": ["arb"],
     "furosemide": ["diuretic"], "spironolactone": ["k_sparing"],
-    "omeprazole": ["ppi"], "pantoprazole": ["ppi"], "rabeprazole": ["ppi"]
+    "omeprazole": ["ppi"], "pantoprazole": ["ppi"], "rabeprazole": ["ppi"],
+    "atorvastatin": ["statin"], "rosuvastatin": ["statin"],
+    "cetirizine": ["antihistamine"], "fexofenadine": ["antihistamine"], "chlorpheniramine": ["antihistamine"]
   },
   "interactions": [
     {"a": "nsaid", "b": "anticoagulant", "severity": "RED",
@@ -90,6 +92,18 @@
     {"a": "arb", "b": "k_sparing", "severity": "AMBER",
      "en": "Telmisartan or losartan with spironolactone can raise blood potassium to unsafe levels.",
      "hi": "टेल्मिसर्टन/लोसार्टन के साथ स्पिरोनोलैक्टोन से पोटैशियम खतरनाक स्तर तक बढ़ सकता है।"},
+    {"a": "arb", "b": "arb", "severity": "RED",
+     "en": "Two blood-pressure medicines of the same type (ARB) together can harm the kidneys and raise blood potassium.",
+     "hi": "एक ही प्रकार की दो बीपी की दवाएं (ARB) साथ लेने से गुर्दे को नुकसान और पोटैशियम बढ़ सकता है।"},
+    {"a": "statin", "b": "statin", "severity": "RED",
+     "en": "Two cholesterol medicines (statins) together raise the risk of serious muscle damage.",
+     "hi": "कोलेस्ट्रॉल की दो दवाएं (स्टैटिन) साथ लेने से मांसपेशियों को गंभीर नुकसान का खतरा बढ़ता है।"},
+    {"a": "ppi", "b": "ppi", "severity": "AMBER",
+     "en": "Two acidity medicines of the same type (PPI) together add no benefit and increase side effects.",
+     "hi": "एसिडिटी की एक ही प्रकार की दो दवाएं (PPI) साथ लेने से कोई फायदा नहीं, साइड इफेक्ट बढ़ सकते हैं।"},
+    {"a": "antihistamine", "b": "antihistamine", "severity": "AMBER",
+     "en": "Two allergy medicines together can cause strong drowsiness.",
+     "hi": "एलर्जी की दो दवाएं साथ लेने से बहुत नींद आ सकती है।"},
     {"a": "clopidogrel", "b": "omeprazole", "severity": "AMBER",
      "en": "Omeprazole can reduce how well clopidogrel works. Pantoprazole is usually preferred.",
      "hi": "ओमेप्राज़ोल क्लोपिडोग्रेल का असर कम कर सकता है। डॉक्टर से पूछें।"}

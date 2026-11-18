@@ -235,22 +235,50 @@ def parse_expiry(text: str) -> Optional[date]:
 _SLOTS = ("morning", "afternoon", "night")
 
 
+_DOSE = r"[0-9]+(?:\s*/\s*[0-9]+)?(?:\.[0-9]+)?|½|¼"  # 1, 0, 1/2, 0.5
+_PATTERN = re.compile(rf"(?<![\d/.])((?:{_DOSE})(?:\s*-\s*(?:{_DOSE})){{2,3}})(?![\d/.])")  # tolerates "1-0-1x"
+_NOT_FREQUENCY = re.compile(r"\b(after|before|with)\s+(food|meals?|water|milk)\b")
+_NOT_DAILY = re.compile(r"\b(week|weekly|alternate|alt\.?\s*day|every other|sos|prn|as needed|if needed|when needed|monthly)\b")
+_WORDS = {
+    "morning": r"\b(morning|am|breakfast)\b",
+    "afternoon": r"\b(afternoon|noon|lunch)\b",
+    "night": r"\b(night|bedtime|hs|evening|dinner)\b",
+}
+
+
+def parse_schedule(freq: Optional[str]) -> tuple[list[str], bool]:
+    """Return (slots, clear). clear=False means a frequency was written that we cannot turn into a
+    daily schedule (weekly, SOS, 4 times a day, 0-0-0, gibberish): the caller raises AMBER."""
+    if not freq or not freq.strip():
+        return [], True
+    f = _NOT_FREQUENCY.sub(" ", freq.lower()).strip(" ,;.")
+    if not f:  # only food instructions: nothing to schedule, nothing wrong
+        return [], True
+    if _NOT_DAILY.search(f):
+        return [], False
+    m = _PATTERN.search(f)
+    if m:  # 1-0-1, 1-0-0-1 (morning, afternoon, evening, night), 1/2-0-1/2
+        parts = [re.sub(r"\s+", "", p) for p in re.split(r"\s*-\s*", m.group(1))]
+        on = [p not in ("0", "0.0") for p in parts]
+        slots = {"morning": on[0], "afternoon": on[1], "night": on[-1]}
+        if len(on) == 4:
+            slots["afternoon"] = on[1] or on[2]
+        out = [s for s in _SLOTS if slots[s]]
+        return out, bool(out)
+    found = [s for s in _SLOTS if re.search(_WORDS[s], f)]
+    if found:
+        return found, True
+    if re.search(r"\b(tds|tid|thrice|three times|q\s?8\s?h|every\s+8\s+hours?)\b", f):
+        return list(_SLOTS), True
+    if re.search(r"\b(bd|bid|twice|q\s?12\s?h|every\s+12\s+hours?)\b", f):
+        return ["morning", "night"], True
+    if re.search(r"\b(od|once|daily|q\s?24\s?h)\b", f):
+        return ["morning"], True
+    return [], False  # QID, q6h, unreadable...
+
+
 def parse_frequency(freq: Optional[str]) -> list[str]:
-    if not freq:
-        return []
-    f = freq.lower().strip()
-    m = re.search(r"([0-9])\s*-\s*([0-9])\s*-\s*([0-9])", f)
-    if m:
-        return [s for s, v in zip(_SLOTS, m.groups()) if int(v) > 0]
-    if re.search(r"\b(tds|tid|thrice|three times|1-1-1)\b", f) or "qid" in f:
-        return list(_SLOTS)
-    if re.search(r"\b(bd|bid|twice)\b", f):
-        return ["morning", "night"]
-    if re.search(r"\b(hs|night|bedtime)\b", f):
-        return ["night"]
-    if re.search(r"\b(od|once|morning|daily)\b", f):
-        return ["morning"]
-    return []
+    return parse_schedule(freq)[0]
 
 
 # ---------- grounding: compare extracted entities with what the OCR text actually shows ----------
@@ -475,6 +503,19 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
                 message_en=f"{_label(r)} expired on {d:%d %b %Y}. Do not take it. Throw it away safely.",
                 message_hi=f"{_label(r)} की एक्सपायरी {d:%d/%m/%Y} को खत्म हो चुकी है। इसे न खाएं।", drugs=[_label(r)]))
 
+    # 5. Daily schedule from the prescription; a written timing we cannot read is flagged, not dropped.
+    schedule: dict[str, list[str]] = {s: [] for s in _SLOTS}
+    for p, pr in zip(prescribed, rx):
+        slots, clear = parse_schedule(p.frequency)
+        for slot in slots:
+            schedule[slot].append(_label(pr) if pr.brand else p.name)
+        if not clear:
+            findings.append(_amber(
+                "SCHEDULE_UNCLEAR", f"When to take {_label(pr)} is unclear",
+                f"The timing written for {_label(pr)} ('{p.frequency}') could not be turned into a daily schedule. Ask the doctor or pharmacist when to take it.",
+                f"{_label(pr)} के लिए लिखा समय ('{p.frequency}') रोज़ के कार्यक्रम में नहीं बदला जा सका। डॉक्टर या फार्मासिस्ट से पूछें कि कब लेनी है।",
+                [_label(pr)]))
+
     # Never GREEN unless at least one medicine was actually verified against the prescription.
     if not any(f.severity != "GREEN" for f in findings) and not any(f.code == "MATCH" for f in findings):
         findings.append(_amber("NOTHING_VERIFIED", "Nothing could be verified",
@@ -485,12 +526,7 @@ def analyze(prescribed: list[PrescribedDrug], strips: list[PhysicalStrip], today
     findings.sort(key=lambda f: order[f.severity])
     status = "RED" if any(f.severity == "RED" for f in findings) else ("AMBER" if any(f.severity == "AMBER" for f in findings) else "GREEN")
 
-    schedule: dict[str, list[str]] = {s: [] for s in _SLOTS}
-    for p, pr in zip(prescribed, rx):
-        for slot in parse_frequency(p.frequency):
-            schedule[slot].append(_label(pr) if pr.brand else p.name)
-
-    bad = [f for f in findings if f.severity != "GREEN"]
+    bad =[f for f in findings if f.severity != "GREEN"]
     if not bad:
         en = "All clear. Your medicines match the prescription."
         hi = "सब ठीक है। आपकी दवाएं पर्चे से मेल खाती हैं।"
