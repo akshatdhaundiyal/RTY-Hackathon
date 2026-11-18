@@ -48,7 +48,7 @@
 ### [0:35 – 1:15] Working Product — Baseline Scenario (Judging Criterion: 1/3)
 
 **Speaker Action:**
-1. Point to top header: *"💊 MediGuard"*.
+1. Point to the top bar: the **MediGuard** logo and the "Works offline · English & Hindi" badge.
 2. Click the button: **`Scenario 1: Safe Match`**.
 3. Point out how the UI instantly updates with the seeded prescription and strips.
 
@@ -62,7 +62,7 @@
 > 4. And for an elder who cannot read small text, they click one button..."
 
 **Speaker Action:**
-Click **`🔊 Read aloud (English)`** or **`🔊 हिन्दी में सुनें`**. Let it speak the first sentence ("All clear. Your medicines match the prescription" / "सब ठीक है..."), then click **`Stop`**.
+Click **`Read aloud (English)`** or **`हिन्दी में सुनें`**. Let it speak the first sentence ("All clear. Your medicines match the prescription" / "सब ठीक है..."), then click **`Stop`**.
 
 ---
 
@@ -94,7 +94,7 @@ Click **`🔊 Read aloud (English)`** or **`🔊 हिन्दी में �
 ### [2:10 – 2:40] Scenario 2: The Trap Revealed
 
 **Speaker Action:**
-Point to the big red banner: **`⛔ Do NOT take these medicines until checked`**.
+Point to the big red banner: **`Do NOT take these medicines until checked`**.
 Highlight the key flags (there are also green cards for the matching strips):
 
 1. **`DANGER — DUPLICATE SALT`**: Point to Dolo 650 & Crocin 500 card.
@@ -116,7 +116,7 @@ Highlight the key flags (there are also green cards for the matching strips):
 
 ### [2:40 – 3:00] Summary & Close
 
-**Speaker Action:** Click **`🔊 हिन्दी में सुनें`** on the red warning. Listen to: *"सावधान। समस्या मिली..."* then click **`Stop`**.
+**Speaker Action:** Click **`हिन्दी में सुनें`** on the red warning. Listen to: *"सावधान। समस्या मिली..."* then click **`Stop`**.
 
 **Spoken Script:**
 > "MediGuard works offline by default: the images are read on this laptop and never leave it. It reads warnings aloud in Hindi and English for elderly users, and it pairs AI text extraction with deterministic clinical rules that you can test line by line.
