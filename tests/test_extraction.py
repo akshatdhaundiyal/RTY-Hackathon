@@ -31,6 +31,26 @@ def test_prepare_image_rejects_bad_uploads(data, status):
     assert e.value.status == status
 
 
+def test_tiny_images_are_enlarged_but_normal_ones_are_not():
+    tiny = Image.open(io.BytesIO(vx.prepare_image(png((244, 206)))))
+    assert max(tiny.size) >= 900 and max(tiny.size) <= 244 * vx.MAX_UPSCALE
+    normal = Image.open(io.BytesIO(vx.prepare_image(png((500, 400)))))
+    assert normal.size == (500, 400)  # not enlarged: that made OCR repeat text on real strips
+
+
+def test_repeated_strip_listings_merge_without_losing_distinct_strips():
+    S = PhysicalStrip
+    out = vx.merge_repeats([S(name="BRUFEN", strength_mg=400), S(name="Brufen", strength_mg=400, expiry="12/2027"),
+                            S(name="BRUFEN", strength_mg=400), S(name="Combiflam"), S(name="Combiflam")])
+    assert [(s.name, s.expiry) for s in out] == [("BRUFEN", "12/2027"), ("Combiflam", None)]
+    # different batches are different strips; different strengths are different strips
+    out = vx.merge_repeats([S(name="Dolo", strength_mg=650, batch="A1"), S(name="Dolo", strength_mg=650, batch="B2"),
+                            S(name="Dolo", strength_mg=500)])
+    assert len(out) == 3
+    rx = vx.merge_repeats([PrescribedDrug(name="Dolo", strength_mg=650), PrescribedDrug(name="dolo", strength_mg=650)])
+    assert len(rx) == 1
+
+
 def test_llm_number_coercion():
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5 days").strength_mg == 650
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5.5").duration_days == 5
