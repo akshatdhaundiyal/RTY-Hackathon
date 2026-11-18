@@ -235,6 +235,42 @@ def merge_repeats(items: list) -> list:
     return out
 
 
+def _one_digit_apart(a: float, b: float) -> bool:
+    x, y = str(int(a)), str(int(b))
+    return len(x) == len(y) and x != y and sum(c != d for c, d in zip(x, y)) == 1
+
+
+def merge_misread_strengths(items: list) -> list:
+    """Drop a strip entry whose strength is an OCR misread of a valid entry for the same brand in the same photo.
+
+    A stylised "650" is often read as "550", which does not exist. When the SAME photo also gives a valid entry of the
+    same brand family whose strength is exactly one digit away, the odd entry is the same strip read twice. It is dropped
+    only then: a lone invalid strength is never corrected, so it stays flagged as unrecognised.
+    Limitation: two real strips of one brand whose strengths differ by one digit (500 and 600) would be treated as one."""
+    from safety_engine import _BY_JOINED, _INFO, _NUM, _alpha, _norm, resolve as _resolve
+
+    res = [_resolve(i.name, getattr(i, "strength_mg", None)) for i in items]
+    drop: set[int] = set()
+    for gi, g in enumerate(res):
+        if g.salts:
+            continue  # recognised entries are never dropped here
+        n = _norm(items[gi].name)
+        fam = _BY_JOINED.get(_alpha(n))
+        nums = _NUM.findall(n)
+        s = getattr(items[gi], "strength_mg", None) or (float(nums[0]) if nums else None)
+        if not fam or not s:
+            continue
+        for bi, b in enumerate(res):
+            if bi != gi and b.brand in fam and b.strength_mg and _one_digit_apart(s, _INFO[b.brand][1]):
+                keep, gone = items[bi], items[gi]
+                for f in ("expiry", "batch"):
+                    if hasattr(keep, f) and getattr(keep, f) in (None, "") and getattr(gone, f, None):
+                        setattr(keep, f, getattr(gone, f))
+                drop.add(gi)
+                break
+    return [it for i, it in enumerate(items) if i not in drop]
+
+
 def merge_composition_lines(items: list) -> list:
     """Drop a generic-name entry that is just the composition line of a branded strip in the same photo.
 
@@ -270,7 +306,8 @@ def extract_offline(rx_img: bytes, strips_img: bytes) -> ExtractionResult:
     st_text = _clip(ocr_text(strips_img), "medicine strips", findings)
     rx = _ollama_extract(RX_PROMPT, rx_text, RxExtraction)
     st = _ollama_extract(STRIP_PROMPT, st_text, StripExtraction)
-    rx.drugs, st.strips = merge_repeats(rx.drugs), merge_composition_lines(merge_repeats(st.strips))
+    rx.drugs = merge_repeats(rx.drugs)
+    st.strips = merge_misread_strengths(merge_composition_lines(merge_repeats(st.strips)))
     # Deterministic cross-check: the LLM may omit drugs (or be prompt-injected). Anything the OCR text
     # shows that was not extracted, or extracted but absent from the text, becomes an AMBER finding.
     findings += grounding_findings(rx_text, [resolve(d.name, d.strength_mg) for d in rx.drugs], "prescription")

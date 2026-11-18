@@ -81,6 +81,21 @@ def test_composition_merge_keeps_real_duplicates_and_distinct_strips():
     assert len(vx.merge_composition_lines([S(name="Ibuprofen"), S(name="Paracetamol")])) == 2  # no brand at all
 
 
+def test_misread_strength_next_to_a_valid_reading_is_merged_but_never_autocorrected():
+    S = PhysicalStrip
+    # the camera photo: "Dolo-650" read as 650 and as 550 in the same image
+    out = vx.merge_misread_strengths([S(name="Dolo-650", strength_mg=650), S(name="Dolo", strength_mg=550, expiry="11/2027")])
+    assert [(s.name, s.strength_mg, s.expiry) for s in out] == [("Dolo-650", 650, "11/2027")]
+    out = vx.merge_misread_strengths([S(name="Dolo-650", strength_mg=650), S(name="Dolo 550")])  # strength inside the name
+    assert len(out) == 1
+    # a lone invalid strength is NOT corrected: it stays so the engine flags it as unrecognised
+    assert len(vx.merge_misread_strengths([S(name="Dolo", strength_mg=550)])) == 1
+    # not one digit apart, or a different brand, or two different valid strengths: nothing is dropped
+    assert len(vx.merge_misread_strengths([S(name="Dolo", strength_mg=650), S(name="Dolo", strength_mg=1000)])) == 2
+    assert len(vx.merge_misread_strengths([S(name="Dolo", strength_mg=650), S(name="Crocin", strength_mg=550)])) == 2
+    assert len(vx.merge_misread_strengths([S(name="Dolo", strength_mg=650), S(name="Dolo", strength_mg=500)])) == 2
+
+
 def test_llm_number_coercion():
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5 days").strength_mg == 650
     assert PrescribedDrug(name="Dolo", strength_mg="650mg", duration_days="5.5").duration_days == 5
